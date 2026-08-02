@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Templar.Oracle</RootNamespace>
+    <PackageId>Templar.Oracle</PackageId>
+    <Description>Oracle Database template store for Templar.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Templar.Relational\Templar.Relational.csproj" />
+  </ItemGroup>
+
+</Project>

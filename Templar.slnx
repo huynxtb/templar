@@ -1,0 +1,24 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/Templar.Sample.InMemory/Templar.Sample.InMemory.csproj" />
+    <Project Path="samples/Templar.Sample.MemoryCache/Templar.Sample.MemoryCache.csproj" />
+    <Project Path="samples/Templar.Sample.DistributedCache/Templar.Sample.DistributedCache.csproj" />
+    <Project Path="samples/Templar.Sample.PostgreSql/Templar.Sample.PostgreSql.csproj" />
+    <Project Path="samples/Templar.Sample.MySql/Templar.Sample.MySql.csproj" />
+    <Project Path="samples/Templar.Sample.SqlServer/Templar.Sample.SqlServer.csproj" />
+    <Project Path="samples/Templar.Sample.Oracle/Templar.Sample.Oracle.csproj" />
+    <Project Path="samples/Templar.Sample.Mongo/Templar.Sample.Mongo.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Templar.Core/Templar.Core.csproj" />
+    <Project Path="src/Templar.Mongo/Templar.Mongo.csproj" />
+    <Project Path="src/Templar.MySql/Templar.MySql.csproj" />
+    <Project Path="src/Templar.Oracle/Templar.Oracle.csproj" />
+    <Project Path="src/Templar.PostgreSql/Templar.PostgreSql.csproj" />
+    <Project Path="src/Templar.Relational/Templar.Relational.csproj" />
+    <Project Path="src/Templar.SqlServer/Templar.SqlServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Templar.Tests/Templar.Tests.csproj" />
+  </Folder>
+</Solution>

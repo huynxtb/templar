@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Templar.MySql</RootNamespace>
+    <PackageId>Templar.MySql</PackageId>
+    <Description>MySQL / MariaDB template store for Templar.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MySqlConnector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Templar.Relational\Templar.Relational.csproj" />
+  </ItemGroup>
+
+</Project>

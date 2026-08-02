@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Templar.SqlServer</RootNamespace>
+    <PackageId>Templar.SqlServer</PackageId>
+    <Description>Microsoft SQL Server template store for Templar.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Templar.Relational\Templar.Relational.csproj" />
+  </ItemGroup>
+
+</Project>

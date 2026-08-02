@@ -1,0 +1,90 @@
+# Build output
+bin/
+obj/
+artifacts/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+*.dll
+*.exe
+*.pdb
+
+# MSBuild / restore
+*.binlog
+msbuild.log
+msbuild.err
+msbuild.wrn
+project.lock.json
+project.assets.json
+*.nuget.dgspec.json
+*.nuget.g.props
+*.nuget.g.targets
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+.nuget/
+
+# Tests and coverage
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coverlet.json
+coverage*.json
+coverage*.xml
+coverage*.info
+*.opencover.xml
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.sln.iml
+*.[Cc]ache
+
+# Rider / JetBrains
+.idea/
+*.DotSettings.user
+
+# VS Code — keep the shared files, drop the per-user ones
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+# Local configuration and secrets. Connection strings belong in user secrets, environment
+# variables or a *.Local.json that never leaves the machine — appsettings.json itself is
+# committed because it only holds placeholders.
+appsettings.*.Local.json
+appsettings.Local.json
+*.local.json
+secrets.json
+.env
+.env.*
+
+# Claude Code local settings (the shared .claude/settings.json stays tracked)
+.claude/settings.local.json
+
+# Operating system noise
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*~
+
+artifacts
+
+# Note: samples/Templar.Example/Properties/launchSettings.json is intentionally *not* ignored —
+# it pins the sample to http://localhost:5000, which the README documents.

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Templar.Relational</RootNamespace>
+    <PackageId>Templar.Relational</PackageId>
+    <Description>Shared ADO.NET store implementation reused by the SQL database providers of Templar.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Templar.Core\Templar.Core.csproj" />
+  </ItemGroup>
+
+</Project>

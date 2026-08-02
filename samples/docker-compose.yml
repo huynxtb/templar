@@ -1,0 +1,127 @@
+# Backing services for the samples. Credentials and ports match each sample's appsettings.json, so
+# bringing a service up is all that is needed before `make run SAMPLE=<name>`.
+#
+# Profiles are the lowercased sample names, which is what `make up SAMPLE=<name>` passes:
+#
+#   make up SAMPLE=PostgreSql          docker compose --profile postgresql up -d --wait
+#   make up SAMPLE=all                 everything at once
+#   make down                          stop and remove, keeping the volumes
+#   make down-clean                    stop and delete the data too
+#
+# InMemory and MemoryCache need nothing, so their profiles match no service and `up` is a no-op.
+# Every host port is overridable when one is already taken:
+#
+#   TEMPLAR_REDIS_PORT=6399 make up SAMPLE=DistributedCache
+
+name: templar-samples
+
+services:
+  postgres:
+    profiles: [postgresql, all]
+    image: postgres:17-alpine
+    ports: ["${TEMPLAR_POSTGRES_PORT:-5432}:5432"]
+    environment:
+      POSTGRES_DB: notifications
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notifications"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mysql:
+    profiles: [mysql, all]
+    image: mysql:8.4
+    ports: ["${TEMPLAR_MYSQL_PORT:-3306}:3306"]
+    environment:
+      MYSQL_DATABASE: notifications
+      MYSQL_ROOT_PASSWORD: secret
+    volumes: ["mysql:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-psecret"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  sqlserver:
+    profiles: [sqlserver, all]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    ports: ["${TEMPLAR_SQLSERVER_PORT:-1433}:1433"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Secret_123
+    volumes: ["sqlserver:/var/opt/mssql"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Secret_123 -Q 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # SQL Server starts with no application database, and the sample connects straight to
+  # notifications — so create it once the server is answering, then exit. Kept out of the sqlserver
+  # profile because `up --wait` treats an exiting container as a failure; `make up` runs it with
+  # `compose run`, which brings the server up as its dependency.
+  sqlserver-init:
+    profiles: [sqlserver-init]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver: { condition: service_healthy }
+    entrypoint:
+      - /opt/mssql-tools18/bin/sqlcmd
+      - -C
+      - -S
+      - sqlserver
+      - -U
+      - sa
+      - -P
+      - Secret_123
+      - -Q
+      - "IF DB_ID('notifications') IS NULL CREATE DATABASE notifications"
+    restart: "no"
+
+  oracle:
+    profiles: [oracle, all]
+    image: gvenzl/oracle-free:slim
+    ports: ["${TEMPLAR_ORACLE_PORT:-1521}:1521"]
+    environment:
+      ORACLE_PASSWORD: secret
+      APP_USER: notify
+      APP_USER_PASSWORD: secret
+    volumes: ["oracle:/opt/oracle/oradata"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  mongo:
+    profiles: [mongo, all]
+    image: mongo:8
+    ports: ["${TEMPLAR_MONGO_PORT:-27017}:27017"]
+    volumes: ["mongo:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    profiles: [distributedcache, all]
+    image: redis:7-alpine
+    ports: ["${TEMPLAR_REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres:
+  mysql:
+  sqlserver:
+  oracle:
+  mongo:

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Templar.PostgreSql</RootNamespace>
+    <PackageId>Templar.PostgreSql</PackageId>
+    <Description>PostgreSQL template store for Templar.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Templar.Relational\Templar.Relational.csproj" />
+  </ItemGroup>
+
+</Project>
