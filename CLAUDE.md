@@ -63,7 +63,7 @@ a `v<version>` tag and GitHub release). Package versions are centralised in
 nuget.org **trusted publishing** (OIDC), not a stored API key: the `publish` job requests
 `id-token: write`, exchanges the token via `NuGet/login@v1` (username from `secrets.NUGET_USER`) and
 pushes with the one-hour key it returns. The nuget.org policy is pinned to workflow file `build.yml`
-plus environment `nuget`, so renaming either breaks publishing. The `pack` skill
+plus environment `production`, so renaming either breaks publishing. The `pack` skill
 (`.claude/skills/pack/`) covers building and verifying the packages locally.
 
 ## Architecture
