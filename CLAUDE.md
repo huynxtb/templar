@@ -56,12 +56,15 @@ optional compression dependencies and are deliberately not pinned forward — se
 ## Versioning and release
 
 `<Version>` in `Directory.Build.props` is the single version for all seven packages. CI
-(`.github/workflows/ci.yml`) pushes to nuget.org with `--skip-duplicate` on every push to `main`, so
+(`.github/workflows/build.yml`) pushes to nuget.org with `--skip-duplicate` on every push to `main`, so
 an unchanged version is a silent no-op and **bumping `<Version>` is what publishes a release** (plus
 a `v<version>` tag and GitHub release). Package versions are centralised in
-`Directory.Packages.props` — never put a `Version=` on a `PackageReference`. Full setup notes:
-`docs/github-actions.md`; the `pack` skill (`.claude/skills/pack/`) covers building and verifying the
-packages locally.
+`Directory.Packages.props` — never put a `Version=` on a `PackageReference`. Publishing uses
+nuget.org **trusted publishing** (OIDC), not a stored API key: the `publish` job requests
+`id-token: write`, exchanges the token via `NuGet/login@v1` (username from `secrets.NUGET_USER`) and
+pushes with the one-hour key it returns. The nuget.org policy is pinned to workflow file `build.yml`
+plus environment `nuget`, so renaming either breaks publishing. The `pack` skill
+(`.claude/skills/pack/`) covers building and verifying the packages locally.
 
 ## Architecture
 

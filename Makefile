@@ -90,7 +90,7 @@ clean: ## Remove build output and packages
 	$(DOTNET) clean $(SLN) --configuration $(CONFIG) 2>/dev/null || true
 	rm -rf $(OUT)
 
-# Mirrors .github/workflows/ci.yml: restore, build, test, pack. Publishing stays in CI —
+# Mirrors .github/workflows/build.yml: restore, build, test, pack. Publishing stays in CI —
 # it is triggered by bumping <Version> in Directory.Build.props, never from here.
 ci: test pack ## Reproduce the CI build locally
 	@echo "CI sequence complete — packages in $(OUT)/"

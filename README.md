@@ -191,5 +191,4 @@ everything from the browser. Details in [docs/reference.md](docs/reference.md#sa
 
 - **[docs/reference.md](docs/reference.md)** — every option, service lifetimes, caching internals,
   the data model and per-engine column types, table/schema configuration, the sample's API, tests.
-- **[docs/github-actions.md](docs/github-actions.md)** — CI and how a release is published.
 - `make help` — build, test and packaging commands.

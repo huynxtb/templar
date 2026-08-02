@@ -5,7 +5,7 @@ description: Build the seven Templar NuGet packages locally, exactly the way CI 
 
 # Pack Templar for NuGet
 
-Reproduces the `build-test` job of `.github/workflows/ci.yml` locally. Output lands in `artifacts/`
+Reproduces the `build-test` job of `.github/workflows/build.yml` locally. Output lands in `artifacts/`
 (git-ignored).
 
 ## Steps
@@ -70,5 +70,3 @@ run `dotnet nuget push` by hand for a normal release. Pre-release versions work 
 
 Ask the user before bumping `<Version>` unless they explicitly asked for a release — a bump is what
 triggers a publish.
-
-Full CI and nuget.org setup notes live in `docs/github-actions.md`.
