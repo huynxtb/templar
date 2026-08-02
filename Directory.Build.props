@@ -12,11 +12,18 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Templar</Authors>
     <Product>Templar</Product>
     <Description>Multi-language email / in-app notification templates stored in a database.</Description>
     <PackageTags>email;notification;template;localization;mustache</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <!-- nuget.org only renders a README that is inside the .nupkg, so the one README is packed into
+       all seven. Links in it must be absolute or they break on the gallery. -->
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 
 </Project>

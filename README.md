@@ -185,10 +185,12 @@ dotnet run --project samples/Templar.Sample.PostgreSql \
 
 Every sample exposes the same API — full CRUD, `/api/render`, `/api/render/html` and
 `/api/cache/clear` — with Swagger UI in front of it, so `/` redirects to `/swagger` and you can call
-everything from the browser. Details in [docs/reference.md](docs/reference.md#sample-applications).
+everything from the browser. Details in
+[docs/reference.md](https://github.com/huynxtb/templar/blob/main/docs/reference.md#sample-applications).
 
 ## More
 
-- **[docs/reference.md](docs/reference.md)** — every option, service lifetimes, caching internals,
+- **[docs/reference.md](https://github.com/huynxtb/templar/blob/main/docs/reference.md)** — every
+  option, service lifetimes, caching internals,
   the data model and per-engine column types, table/schema configuration, the sample's API, tests.
 - `make help` — build, test and packaging commands.
