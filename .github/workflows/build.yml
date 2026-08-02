@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     # The trusted publishing policy on nuget.org is scoped to workflow file `build.yml` and this
     # environment name — renaming either one breaks the token exchange.
-    environment: nuget
+    environment: production
     permissions:
       contents: write
       id-token: write
