@@ -37,8 +37,9 @@ optional compression dependencies, documented in `Directory.Packages.props`. The
 
 There must be **fourteen** files — a `.nupkg` and a `.snupkg` for each of the seven packages
 (`Templar.Core`, `Templar.Relational`, `Templar.MySql`, `Templar.SqlServer`, `Templar.PostgreSql`,
-`Templar.Oracle`, `Templar.Mongo`). Nothing named `Templar.Sample.*` and no `Templar.Tests` may
-appear — the nine sample projects and the test project all set `IsPackable=false`.
+`Templar.Oracle`, `Templar.Mongo`). There is no `Templar.Scriban` package — the Scriban engine ships
+inside `Templar.Core`. Nothing named `Templar.Sample.*` and no `Templar.Tests` may appear — the nine
+sample projects and the test project all set `IsPackable=false`.
 
 ```bash
 ls -1 artifacts/

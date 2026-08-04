@@ -3,10 +3,11 @@
   <PropertyGroup>
     <RootNamespace>Templar</RootNamespace>
     <PackageId>Templar.Core</PackageId>
-    <Description>Core template model, mustache-style renderer, culture fallback and caching for Templar.</Description>
+    <Description>Core template model, Scriban rendering engine with loops and conditionals, culture fallback and caching for Templar.</Description>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Scriban" />
     <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />

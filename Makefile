@@ -61,6 +61,7 @@ samples: ## List the samples and the Swagger URL each opens on
 		InMemory         "in-memory store, no database          http://localhost:5000/swagger" \
 		MemoryCache      "default in-process cache, counted     http://localhost:5001/swagger" \
 		DistributedCache "IDistributedCache / Redis, counted    http://localhost:5002/swagger" \
+		Scriban          "loops, conditionals and tables        http://localhost:5003/swagger" \
 		PostgreSql       "PostgreSQL                            http://localhost:5010/swagger" \
 		MySql            "MySQL / MariaDB                       http://localhost:5011/swagger" \
 		SqlServer        "SQL Server / Azure SQL                http://localhost:5012/swagger" \

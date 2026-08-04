@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Templar.Abstractions;
 using Templar.Caching;
 using Templar.Rendering;
+using Templar.Scriban;
 using Templar.Stores;
 using Xunit;
 
@@ -226,5 +227,96 @@ public class DependencyInjectionTests
             .RenderAsync(new TemplateRenderRequest("welcome-user", "vi", TemplarHarness.Values()));
 
         Assert.Equal("Chào mừng tới XXX", rendered.Subject);
+    }
+
+    [Fact]
+    public async Task AddTemplar_uses_Scriban_without_being_asked()
+    {
+        var services = new ServiceCollection();
+        services.AddTemplar(o => o.DefaultCulture = "vi")
+            .UseInMemoryStore(
+            [
+                new TemplateDefinition
+                {
+                    TemplateKey = "order-shipped",
+                    Culture = "vi",
+                    Subject = "Đơn hàng của bạn",
+                    TextBody = "{{ for line in lines }}- {{ line.name }}\n{{ end }}",
+                    UpdatedAtUtc = DateTimeOffset.UnixEpoch,
+                },
+            ]);
+
+        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true,
+        });
+
+        // A half-registered engine would resolve but throw on the first render.
+        Assert.IsType<ScribanTemplateCompiler>(provider.GetRequiredService<ITemplateCompiler>());
+        Assert.IsType<ScribanTemplateRenderer>(provider.GetRequiredService<ITemplateRenderer>());
+
+        using var scope = provider.CreateScope();
+        var rendered = await scope.ServiceProvider.GetRequiredService<ITemplateRenderService>().RenderAsync(
+            new TemplateRenderRequest(
+                "order-shipped",
+                values: TemplateValues.Create().Set("lines", new[] { new { Name = "Bàn phím" } })));
+
+        Assert.Equal("- Bàn phím\n", rendered.Text);
+    }
+
+    /// <summary>
+    /// The point of <see cref="ScribanOptions.Functions"/>: a function registered once where the
+    /// container is configured is callable from every stored body, with no per-render plumbing.
+    /// </summary>
+    [Fact]
+    public async Task A_function_registered_at_DI_time_is_callable_from_a_stored_template()
+    {
+        var services = new ServiceCollection();
+        services.AddTemplar(o => o.DefaultCulture = "vi")
+            .UseInMemoryStore(
+            [
+                new TemplateDefinition
+                {
+                    TemplateKey = "receipt",
+                    Culture = "vi",
+                    Subject = "Đã thanh toán {{ total | vnd }}",
+                    TextBody = "Cảm ơn {{ mask card }}.",
+                    UpdatedAtUtc = DateTimeOffset.UnixEpoch,
+                },
+            ])
+            .UseScriban(options =>
+            {
+                options.Functions["vnd"] = (decimal amount) => $"{amount:N0} đ";
+                options.Functions["mask"] = (string value) => $"****{value[^4..]}";
+            });
+
+        await using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true,
+        });
+
+        using var scope = provider.CreateScope();
+        var rendered = await scope.ServiceProvider.GetRequiredService<ITemplateRenderService>().RenderAsync(
+            new TemplateRenderRequest(
+                "receipt",
+                values: TemplateValues.Create().Set("total", 1_250_000m).Set("card", "4111111111111234")));
+
+        Assert.Equal("Đã thanh toán 1.250.000 đ", rendered.Subject);
+        Assert.Equal("Cảm ơn ****1234.", rendered.Text);
+    }
+
+    [Fact]
+    public void A_blank_function_name_fails_when_the_engine_is_resolved()
+    {
+        var services = new ServiceCollection();
+        services.AddTemplar()
+            .UseInMemoryStore()
+            .UseScriban(options => options.Functions[" "] = () => "x");
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Throws<InvalidOperationException>(provider.GetRequiredService<ITemplateCompiler>);
     }
 }

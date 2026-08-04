@@ -113,6 +113,156 @@ names match case-insensitively and ignore `_`, `-`, `.` and space, so one value 
 satisfies `{{username}}`, `{{UserName}}` and `{{USER_NAME}}`. Pass `StringComparer.Ordinal` to
 `TemplateValues.Create(…)` when exact matching is required.
 
+## Dynamic templates: the Scriban engine
+
+The engine is [Scriban](https://github.com/scriban/scriban), and `AddTemplar()` registers it. A body
+can hold a table of order lines or a paragraph only VIP customers see with nothing extra installed
+and nothing extra called:
+
+```csharp
+services.AddTemplar()
+        .UsePostgreSql(connectionString);  // Scriban is already the engine
+```
+
+It ships inside `Templar.Core` — there is no separate package. Everything else in this document
+applies unchanged: culture fallback, caching, the three services, `Parts`, `TemplateRaw`,
+`MissingVariableBehavior`. Call `UseScriban(options => …)` to tune it.
+
+```
+Subject:  Order {{ order.reference }} confirmed
+
+{{~ if customer.is_vip ~}}
+<p>As a VIP member your delivery is free.</p>
+{{~ end ~}}
+<table>
+  {{~ for line in order.lines ~}}
+  <tr style="background: {{ if for.even }}#fff{{ else }}#f6f6f6{{ end }}">
+    <td>{{ line.name }}</td>
+    <td>{{ line.quantity }}</td>
+    <td>{{ line.total | format 'N0' }}</td>
+  </tr>
+  {{~ else ~}}
+  <tr><td colspan="3">This order has no lines.</td></tr>
+  {{~ end ~}}
+</table>
+<p>Placed on {{ order.placed_at | format 'D' }}.</p>
+```
+
+`{{~ … ~}}` trims the surrounding whitespace, which is what keeps generated HTML from filling with
+blank lines. `for` exposes `for.index`, `for.first`, `for.last`, `for.even` and `for.odd`, and takes
+an `else` branch for an empty collection. Scriban's own
+[builtins](https://github.com/scriban/scriban/blob/master/doc/builtins.md) — `string`, `math`,
+`date`, `array`, `object`, `regex` — are all available: `{{ line.name | string.truncate 40 }}`.
+
+Pass nested data as ordinary objects, dictionaries or lists:
+
+```csharp
+var values = TemplateValues.Create()
+    .Set("customer", new { FirstName = "Huy", IsVip = true })
+    .Set("order", new { Reference = "XXX-1042", Total = 2_650_000m, PlacedAt = DateTimeOffset.UtcNow, Lines = lines });
+```
+
+### Coming from Templar 1.0
+
+1.0 shipped a placeholder-only engine instead, and it was removed in 2.0. Bodies written for it carry
+over unchanged except in two places:
+
+| Behaviour | Under Scriban |
+| --- | --- |
+| `{{ username }}` | Same. Top-level names still match through `TemplateVariableNameComparer` |
+| `{{ user.FirstName }}` | Works, as do `first_name` and `firstname` (`MemberNameFallback`) |
+| HTML encoding | Same. Only `{{ … }}` output is encoded, never the template's own markup |
+| `TemplateRaw.Html(…)` | Same, plus `{{ value \| raw }}` from inside the template |
+| Culture | Same — `{{ amount }}` and `format` use the *template's* culture |
+| `MissingVariableBehavior` | All three modes, and every missing name is still reported in one error |
+| **`{{DATE:dd/MM/yyyy}}`** | **Rejected at compile time.** Write `{{ DATE \| format 'dd/MM/yyyy' }}` |
+| **Text that looks like a placeholder** | **Now a syntax error.** 1.0 left it as literal text |
+
+The format specifier is the one migration step that matters. Scriban does not treat
+`{{DATE:dd/MM/yyyy}}` as an error — it renders it as an *empty string* — so Templar rejects the shape
+itself with a `TemplateCompilationException` naming the replacement, rather than letting a carried-over
+table lose values silently. `format` takes a .NET format string and applies the template's culture, so
+it is a direct swap for the old syntax. `RejectLegacyFormatSyntax = false` turns the check off once the
+rows are rewritten and you would rather not pay for the scan.
+
+Single braces are safe: CSS (`body { color: red }`) and JSON (`{ "a": 1 }`) pass through untouched.
+A literal `{{` is written `{{ '{{' }}`. Anything else that only *looks* like a placeholder is now a
+`TemplateCompilationException` rather than literal text, so an editor that saves a body should compile
+it before storing it.
+
+### Options
+
+`UseScriban(options => …)`:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `LoopLimit` | 1000 | Maximum iterations per `for`/`while`. Templates come from a database, so this is what stops one bad row hanging a request thread |
+| `RecursiveLimit` | 100 | Maximum nesting depth for template functions |
+| `RegexTimeout` | 1 s | Timeout for the `regex` builtins |
+| `RelaxedMemberAccess` | `true` | `{{ user.middle_name }}` yields nothing rather than failing — what makes `{{ if user.middle_name }}` writable |
+| `MemberNameFallback` | `true` | Match member names with `TemplateVariableNameComparer` when the exact name misses |
+| `RejectLegacyFormatSyntax` | `true` | Reject `{{DATE:dd/MM/yyyy}}` instead of rendering it empty |
+| `UseLiquidSyntax` | `false` | Parse as Liquid (`{% if %}`) for bodies migrated from Shopify or Jekyll |
+| `Functions` | empty | Named delegates the templates can call — see [Custom functions](#custom-functions) |
+| `ConfigureContext` | — | `Action<TemplateContext>` run before each render, for anything `Functions` cannot express: a whole namespace of functions, or a `TemplateLoader` for `{{ include }}` |
+
+`CompiledTemplateCacheSize` stays on `TemplateOptions`, since the compiler's own cache is not a
+Scriban setting.
+
+### Custom functions
+
+`Functions` is a name → delegate map, filled where the container is configured. Every stored body can
+then call what it holds:
+
+```csharp
+services.AddTemplar()
+        .UsePostgreSql(connectionString)
+        .UseScriban(options =>
+        {
+            options.Functions["vnd"]  = (decimal amount) => $"{amount:N0} ₫";
+            options.Functions["mask"] = (string card) => $"**** {card[^4..]}";
+        });
+```
+
+```
+Paid {{ order.total | vnd }} with {{ mask card }}.
+```
+
+Either call style works — `{{ vnd total }}` and `{{ total | vnd }}` are the same call. Any delegate
+shape is accepted: Scriban binds the template's arguments to the parameters and converts them, so a
+`Func<decimal, string>` receives a number from the template rather than a string.
+
+Four things worth knowing:
+
+- **Names match like every other name.** `TemplateVariableNameComparer` applies, so `vnd` registered
+  here also answers to `{{ VND … }}`, and `shortDate` to `{{ short_date … }}`.
+- **They run in the template's culture.** The renderer sets the ambient culture for the duration of a
+  render, so the single `vnd` above yields `1.250.000 ₫` for a `vi` row and `1,250,000 ₫` for an `en`
+  one. Without that, `$"{amount:N0}"` would silently follow the server's locale instead.
+- **A value shadows a function.** The values are pushed above the functions, so a value named `vnd`
+  wins. Conversely a function *can* replace one of Templar's builtins — registering `format` overrides
+  it.
+- **They are shared.** One delegate serves every render on every thread, so it must not close over
+  per-request state; pass that in as an argument. A blank name or a null delegate fails when the
+  engine is first resolved, not at the first render.
+
+Return `TemplateRaw.Html(…)` from a function to opt its output out of HTML encoding, exactly as a
+value would; anything else it returns is encoded in an HTML body.
+
+Two things `MissingVariableBehavior` does *not* reach: a missing **member** is governed by
+`RelaxedMemberAccess`, not by it; and under `Keep` a missing name becomes the literal string
+`{{name}}`, which is truthy — so `{{ if absent }}` takes the true branch in that mode.
+
+### Replacing the engine
+
+`ITemplateCompiler` and `ITemplateRenderer` are public, and `AddTemplar()` registers the Scriban pair
+with `TryAdd`, so a different engine is `RemoveAll` on both followed by your own singletons. They come
+as a pair on purpose: a compiler returns its own `CompiledTemplate` subclass and a renderer that is
+handed another engine's throws a `TemplateRenderException` naming both types rather than guessing.
+
+Templates come from a database, so an engine you write is also what decides how much a stored row can
+do — `LoopLimit`, `RecursiveLimit` and `RegexTimeout` are the equivalent guards on the Scriban one.
+
 ## Channels and parts
 
 One key holds one row per language **×** channel.
@@ -307,13 +457,16 @@ the one you need without untangling anything. The files are near-identical on pu
 differences are the `Use…` call and the comment above it.
 
 Each seeds `welcome-user` (`en`/`vi`, e-mail and in-app), `reset-password` (`en`/`vi` plus an SMS on
-the `Other` channel) and, where the store supports it, creates its own table on startup.
+the `Other` channel) and, where the store supports it, creates its own table on startup. The Scriban
+sample is the exception: it seeds `order-confirmation` instead, whose bodies need a loop and a
+conditional to render at all.
 
 | Project | Shows | Port |
 | --- | --- | --- |
 | `Templar.Sample.InMemory` | `UseInMemoryStore()` — needs no database | 5000 |
 | `Templar.Sample.MemoryCache` | The default `MemoryTemplateCache`, with a store-read counter | 5001 |
 | `Templar.Sample.DistributedCache` | `UseDistributedCache()` over Redis or memory | 5002 |
+| `Templar.Sample.Scriban` | Loops, conditionals and a line-item table, no database | 5003 |
 | `Templar.Sample.PostgreSql` | PostgreSQL | 5010 |
 | `Templar.Sample.MySql` | MySQL / MariaDB | 5011 |
 | `Templar.Sample.SqlServer` | SQL Server / Azure SQL | 5012 |
@@ -484,9 +637,10 @@ choice of provider. A database sample's `appsettings.json` carries a placeholder
 make test         # or: dotnet test Templar.slnx
 ```
 
-74 unit tests cover the parser, renderer, the three services, culture fallback, channels, parts, the
-in-process and distributed caches, the in-memory store, DI lifetimes and the SQL each dialect
-generates — none need a database.
+112 unit tests cover the compiler, the renderer, the three services, culture fallback, channels, parts,
+the in-process and distributed caches, the in-memory store, DI lifetimes, the Scriban engine (loops,
+conditionals, encoding, the three missing-value modes, the loop limit, the legacy-format check and
+custom `Functions`) and the SQL each dialect generates — none need a database.
 
 The five provider round-trip tests are skipped unless a connection string is exported. Each covers
 DDL, both upsert paths, Unicode, a 12 KB body, UTC round-tripping, the `Other` channel, delete and a
@@ -507,14 +661,15 @@ make test-all
 
 ```
 src/Templar.Core          Abstractions/ (query, command, render + the 3 store contracts),
-                          Services/ (their implementations), Rendering/ (compiler, renderer),
+                          Services/ (their implementations), Rendering/ (the compiler and renderer
+                          contracts, plus Scriban/ — the engine and its HTML-encoding context),
                           Caching/ (memory, distributed, null), Stores/ (in-memory),
                           and at the root the model (TemplateDefinition, TemplateValues, …)
                           plus registration (AddTemplar, UseDistributedCache, TemplarBuilder)
 src/Templar.Relational    RelationalTemplateStore, shared by the four SQL providers
 src/Templar.{MySql,SqlServer,PostgreSql,Oracle,Mongo}
                           one store + one Use… extension each
-samples/Templar.Sample.{InMemory,MemoryCache,DistributedCache,PostgreSql,MySql,SqlServer,Oracle,Mongo}
+samples/Templar.Sample.{InMemory,MemoryCache,DistributedCache,Scriban,PostgreSql,MySql,SqlServer,Oracle,Mongo}
                           four files each and no shared code: Program.cs (wiring, seeding, the API,
                           the request bodies and the seed data, in that order), a .csproj,
                           appsettings.json and Properties/launchSettings.json
@@ -537,5 +692,6 @@ services also needs `using Templar.Abstractions;`.
 - **`NU1902` / `NU1903` on restore** come from `SharpCompress` and `Snappier`, pulled in by
   `MongoDB.Driver` for optional wire compression. No released version clears the advisory, so they
   stay at the versions the driver ships with.
-- The engine substitutes values — no conditionals, no loops. Logic belongs in the calling code,
-  which passes the result in as a value.
+- **`TemplateCompilationException` on a body that used to render** — the engine is Scriban, so a body
+  still written in Templar 1.0's `{{DATE:d}}` syntax is rejected rather than rendered empty. Write
+  `{{ DATE | format 'd' }}`; see [Coming from Templar 1.0](#coming-from-templar-10).

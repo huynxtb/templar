@@ -5,7 +5,7 @@ using Templar.Mongo;
 using Templar.MySql;
 using Templar.Oracle;
 using Templar.PostgreSql;
-using Templar.Rendering;
+using Templar.Scriban;
 using Templar.Services;
 using Templar.SqlServer;
 using Xunit;
@@ -158,11 +158,12 @@ public class DatabaseIntegrationTests
 
         // The store plugs into the services unchanged: vi-VN resolves to the vi row.
         var options = Options.Create(new TemplateOptions { DefaultCulture = "en" });
+        var scriban = new ScribanOptions();
         var queries = new TemplateQueryService(store, new MemoryTemplateCache(options), options);
         var render = new TemplateRenderService(
             queries,
-            new MustacheTemplateCompiler(),
-            new TemplateRenderer(),
+            new ScribanTemplateCompiler(scriban, options),
+            new ScribanTemplateRenderer(scriban),
             options);
 
         var rendered = await render.RenderAsync(new TemplateRenderRequest

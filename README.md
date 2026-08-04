@@ -19,8 +19,10 @@ dotnet add package Templar.PostgreSql     # or MySql, SqlServer, Oracle, Mongo
 | `Templar.Oracle` | Oracle Database | `UseOracle(…)` |
 | `Templar.Mongo` | MongoDB | `UseMongo(…)` |
 
-`Templar.Core` (model, template engine, caching, in-memory store) and `Templar.Relational` (shared
-ADO.NET store) come in as dependencies — install them directly only if you are writing your own store.
+`Templar.Core` (model, the Scriban template engine, caching, in-memory store) and `Templar.Relational`
+(shared ADO.NET store) come in as dependencies — install them directly only if you are writing your
+own store. There is nothing else to add: [loops and conditionals](#a-table-and-a-conditional) work
+out of the box.
 
 ## Use it
 
@@ -95,17 +97,74 @@ Switching database means changing the one `Use…` call — nothing else.
 
 ## Template syntax
 
+Templates are [Scriban](https://github.com/scriban/scriban), so a body can insert a value, branch on
+it, or loop over it. Nothing to register — `AddTemplar()` already did.
+
 | Syntax | Meaning |
 | --- | --- |
-| `{{username}}` | Insert the value named `username` |
-| `{{USER_EMAIL}}` | Same value as `{{userEmail}}` — matching ignores case and `_ - . ` separators |
-| `{{DATE:dd/MM/yyyy}}` | Any .NET format string, applied in the template's culture |
+| `{{ username }}` | Insert the value named `username` |
+| `{{ USER_EMAIL }}` | Same value as `{{ userEmail }}` — matching ignores case and `_ - . ` separators |
+| `{{ DATE \| format 'dd/MM/yyyy' }}` | Any .NET format string, applied in the template's culture |
+| `{{ if … }}` `{{ else }}` `{{ end }}` | Show a block only when the data says so |
+| `{{ for x in list }}` `{{ end }}` | Repeat a block — a table of order lines, say |
 | `{{{{` | A literal `{{` |
 
 Values go into an HTML body HTML-encoded; wrap trusted markup in `TemplateRaw.Html(…)` to opt out.
-Text that only looks like a placeholder — unclosed, empty, containing spaces or spanning a line
-break — is left alone, so CSS and JSON inside an HTML body survive. There are no conditionals or
-loops on purpose: logic belongs in your code, which passes the result in as a value.
+
+### A table and a conditional
+
+When the *shape* of the output depends on the data — a table of order lines, a paragraph only VIP
+customers see — write it in the body:
+
+```
+{{~ if customer.is_vip ~}}<p>Your delivery is free.</p>{{~ end ~}}
+<table>
+  {{~ for line in order.lines ~}}
+  <tr><td>{{ line.name }}</td><td>{{ line.total | format 'N0' }}</td></tr>
+  {{~ else ~}}
+  <tr><td colspan="2">This order has no lines.</td></tr>
+  {{~ end ~}}
+</table>
+```
+
+Pass the nested data straight in — a list of objects stays a list:
+
+```csharp
+TemplateValues.Create()
+    .Set("customer", new { IsVip = true })
+    .Set("order", new { Lines = lines, Total = total });
+```
+
+### Your own functions
+
+Register them once where you configure the container, and every stored template can call them:
+
+```csharp
+services.AddTemplar()
+        .UsePostgreSql(connectionString)
+        .UseScriban(options => options.Functions["vnd"] = (decimal amount) => $"{amount:N0} ₫");
+```
+
+```
+Total: {{ order.total | vnd }}        →  Total: 1.250.000 ₫
+```
+
+`{{ vnd total }}` is the same call. Functions run in the template's culture, so that one delegate
+groups digits as `1.250.000` for a Vietnamese row and `1,250,000` for an English one.
+
+### Coming from 1.0
+
+1.0 had a placeholder-only engine, which 2.0 removed. `{{username}}` still means the same thing, so
+most bodies carry over untouched. Two do not: `{{DATE:dd/MM/yyyy}}` becomes
+`{{ DATE | format 'dd/MM/yyyy' }}`, and text that merely *looks* like a placeholder is now a syntax
+error rather than literal text.
+
+Scriban renders the old format syntax as an empty string rather than failing, so Templar rejects it
+outright at compile time with a message naming the replacement, instead of letting a live table lose
+values quietly. Rewriting those rows is the whole migration.
+
+Full details are in
+[the reference](https://github.com/huynxtb/templar/blob/main/docs/reference.md#coming-from-templar-10).
 
 ## Languages and channels
 
@@ -161,6 +220,7 @@ make samples                                              # every sample and its
 | `Templar.Sample.InMemory` | The in-memory store — no database needed | 5000 |
 | `Templar.Sample.MemoryCache` | The default in-process cache, with a store-read counter | 5001 |
 | `Templar.Sample.DistributedCache` | `UseDistributedCache()` over Redis or memory | 5002 |
+| `Templar.Sample.Scriban` | an order e-mail with a line-item table and a VIP conditional | 5003 |
 | `Templar.Sample.PostgreSql` | PostgreSQL | 5010 |
 | `Templar.Sample.MySql` | MySQL / MariaDB | 5011 |
 | `Templar.Sample.SqlServer` | SQL Server / Azure SQL | 5012 |

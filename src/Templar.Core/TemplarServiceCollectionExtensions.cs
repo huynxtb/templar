@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Templar.Abstractions;
 using Templar.Caching;
 using Templar.Rendering;
+using Templar.Scriban;
 using Templar.Services;
 using Templar.Stores;
 
@@ -21,6 +22,11 @@ public static class TemplarServiceCollectionExtensions
     /// provider must be added on the returned builder, otherwise nothing supplies
     /// <see cref="ITemplateStore"/> and resolving a service will fail.
     /// </summary>
+    /// <remarks>
+    /// The engine is Scriban, so stored bodies can use <c>{{ if }}</c>, <c>{{ for }}</c> and pipes
+    /// without any further registration. Call
+    /// <see cref="ScribanTemplarBuilderExtensions.UseScriban"/> to tune it.
+    /// </remarks>
     public static TemplarBuilder AddTemplar(
         this IServiceCollection services,
         Action<TemplateOptions>? configure = null)
@@ -30,10 +36,15 @@ public static class TemplarServiceCollectionExtensions
         var optionsBuilder = services.AddOptions<TemplateOptions>();
         if (configure is not null) optionsBuilder.Configure(configure);
 
+        services.AddOptions<ScribanOptions>();
+
         // Stateless and thread-safe: the compiler and renderer hold only their own caches, and the
         // channel list is fixed at compile time.
-        services.TryAddSingleton<ITemplateCompiler, MustacheTemplateCompiler>();
-        services.TryAddSingleton<ITemplateRenderer, TemplateRenderer>();
+        services.TryAddSingleton<ITemplateCompiler>(provider => new ScribanTemplateCompiler(
+            ScribanOptions.Validated(provider.GetRequiredService<IOptions<ScribanOptions>>()),
+            provider.GetRequiredService<IOptions<TemplateOptions>>()));
+        services.TryAddSingleton<ITemplateRenderer>(provider => new ScribanTemplateRenderer(
+            ScribanOptions.Validated(provider.GetRequiredService<IOptions<ScribanOptions>>())));
         services.TryAddSingleton<ITemplateChannelService, TemplateChannelService>();
 
         services.TryAddSingleton<ITemplateCache>(provider =>

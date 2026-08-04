@@ -52,6 +52,7 @@ public sealed class TemplateOptions
     public bool HtmlEncodeValues { get; set; } = true;
 
     /// <summary>Maximum number of compiled templates kept in memory. Defaults to 1024.</summary>
+    /// <remarks>Read by the compiler, which clears the whole cache at the limit rather than evicting.</remarks>
     public int CompiledTemplateCacheSize { get; set; } = 1024;
 
     /// <summary>

@@ -2,13 +2,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Templar;
 using Templar.Abstractions;
+using Templar.Scriban;
 
-// Templar on MySQL / MariaDB. Everything this sample does is in this one file, top to bottom:
+// What the Scriban engine buys you, which every sample gets by default: template bodies that loop
+// and branch. The seed is an order confirmation with a real line-item table and a VIP paragraph
+// rather than the flat welcome/reset pair the other samples share. Everything is in this one file:
 // configuration, registration, seeding, then the HTTP API. Browse and call it at /swagger.
 //
-//   make up SAMPLE=MySql               start a MySQL container with these credentials
-//   dotnet run                         → http://localhost:5011/swagger
-//   dotnet run --Templates:ConnectionString="Server=…;Database=…;User ID=…;Password=…"
+//   dotnet run                         → http://localhost:5003/swagger
 
 var builder = WebApplication.CreateBuilder(args);
 var settings = builder.Configuration.GetSection("Templates");
@@ -21,14 +22,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddOpenApi();
 
-var connectionString = settings["ConnectionString"];
-if (string.IsNullOrWhiteSpace(connectionString))
-    throw new InvalidOperationException(
-        "Set Templates:ConnectionString in appsettings.json, or pass "
-        + "--Templates:ConnectionString=\"Server=localhost;Database=notifications;User ID=root;Password=secret\" on the command line.");
-
-// AddTemplar registers the three services, the Scriban engine and the cache;
-// UseMySql supplies the store behind them. Upserts use ON DUPLICATE KEY UPDATE.
+// AddTemplar already registers Scriban, so UseScriban here only tunes it — nothing needs swapping.
+// The in-memory store stays a singleton because it *is* the data.
 builder.Services
     .AddTemplar(options =>
     {
@@ -37,19 +32,23 @@ builder.Services
         options.EnableCache = settings.GetValue("EnableCache", true);
         options.CacheDuration = TimeSpan.FromSeconds(settings.GetValue("CacheSeconds", 300));
     })
-    .UseMySql(connectionString, store =>
+    .UseInMemoryStore()
+    .UseScriban(options =>
     {
-        store.TableName = settings["TableName"] ?? store.TableName;
-        store.CommandTimeoutSeconds = settings.GetValue<int?>("CommandTimeoutSeconds");
+        // Templates come from a database, so one bad row must not be able to hang a request thread.
+        options.LoopLimit = settings.GetValue("LoopLimit", 1000);
 
-        // MySQL has no schema separate from the database, so Schema stays null and the connection
-        // string picks the database.
+        // Functions registered here are callable from every stored body: {{ order.total | vnd }}.
+        // They run in the template's culture, so this one delegate groups digits as 1.250.000 for the
+        // Vietnamese row and 1,250,000 for the English one. Shared across renders, so a function
+        // takes what it needs as arguments rather than closing over per-request state.
+        options.Functions["vnd"] = (decimal amount) => $"{amount:N0} ₫";
     });
 
 var app = builder.Build();
 
 app.MapOpenApi();
-app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Templar · MySQL"));
+app.UseSwaggerUI(options => options.SwaggerEndpoint("/openapi/v1.json", "Templar · Scriban engine"));
 app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 // Template failures are ordinary request errors, not server faults.
@@ -79,14 +78,11 @@ app.Use(async (context, next) =>
     }
 });
 
-// EnsureSchemaAsync keeps the sample self-contained; real deployments run migrations instead. The
-// store and the three services are scoped, so startup work needs its own scope — outside a request
-// there is none.
+// The in-memory store has no schema to create. The three services are scoped, so startup work needs
+// its own scope — outside a request there is none.
 if (settings.GetValue("SeedOnStartup", true))
 {
     await using var scope = app.Services.CreateAsyncScope();
-
-    await scope.ServiceProvider.GetRequiredService<ITemplateSchemaInitializer>().EnsureSchemaAsync();
 
     var seed = SeedTemplates.All;
 
@@ -194,7 +190,7 @@ app.MapPut("/api/templates/{key}/{culture}", async (
         return Results.Ok(template);
     })
     .WithTags("Templates")
-    .WithSummary("Update one variant.");
+    .WithSummary("Update one variant. Post a body with a syntax error to see the 400 Scriban reports.");
 
 app.MapDelete("/api/templates/{key}/{culture}", async (
         string key,
@@ -284,8 +280,9 @@ internal sealed record WriteRequest(
 }
 
 /// <summary>
-/// Body of the render calls. <c>values</c> is free-form JSON:
-/// <c>{ "username": "Huy", "MINUTES": 15, "EXPIRES_AT": "2026-08-01T09:30:00Z" }</c>.
+/// Body of the render calls. <c>values</c> is free-form JSON, and unlike the other samples the
+/// nested shapes matter: <c>{ "customer": { "isVip": true }, "lines": [ { "name": "…" } ] }</c> is
+/// what <c>{{ if customer.is_vip }}</c> and <c>{{ for line in lines }}</c> read.
 /// </summary>
 internal sealed record RenderRequest(
     string TemplateKey,
@@ -306,9 +303,9 @@ internal sealed record RenderRequest(
     };
 
     /// <summary>
-    /// Format specifiers such as <c>{{ MINUTES | format 'N0' }}</c> and <c>{{ EXPIRES_AT | format 'g' }}</c> only apply to real
-    /// numbers and dates, and JSON already carries the type — so <c>15</c> arrives as a number while
-    /// a verification code sent as <c>"007193"</c> keeps its leading zero.
+    /// JSON already carries the type, so <c>15</c> arrives as a number while a verification code sent
+    /// as <c>"007193"</c> keeps its leading zero. Arrays and objects become lists and dictionaries
+    /// rather than strings — that is what makes them loopable and their members reachable.
     /// </summary>
     private static object? Unwrap(JsonElement value) => value.ValueKind switch
     {
@@ -325,10 +322,10 @@ internal sealed record RenderRequest(
 // ---------------------------------------------------------------- seed
 
 /// <summary>
-/// What the sample starts with: <c>welcome-user</c> in English and Vietnamese as an e-mail and as an
-/// in-app notification, and <c>reset-password</c> in both languages plus an SMS on the
-/// <c>Other</c> channel. Enough to watch <c>vi-VN</c> fall back to <c>vi</c> and <c>ja</c> fall back
-/// to the default culture.
+/// What the sample starts with: <c>order-confirmation</c> in English and Vietnamese as an e-mail and
+/// as an in-app notification. The e-mail bodies exercise the whole engine — a <c>for</c> over the
+/// order lines, an <c>if</c> on VIP status, <c>else</c> for an empty order, and the <c>format</c>
+/// pipe for money and dates in the template's own culture.
 /// </summary>
 internal static class SeedTemplates
 {
@@ -338,20 +335,47 @@ internal static class SeedTemplates
     [
         new()
         {
-            TemplateKey = "welcome-user",
+            TemplateKey = "order-confirmation",
             Culture = "en",
             Channel = TemplateChannel.Email,
-            Name = "Welcome e-mail (English)",
-            Description = "Sent once, immediately after a user confirms their address.",
-            Subject = "Welcome to XXX",
-            TextBody = "Hello {{username}}, welcome to XXX, this is your email {{EMAIL}}",
+            Name = "Order confirmation (English)",
+            Description = "Sent when payment clears. Loops the order lines and totals them.",
+            Subject = "Order {{ order.reference }} confirmed",
+            TextBody = """
+                Hello {{ customer.first_name }},
+
+                {{ for line in order.lines ~}}
+                  {{ line.quantity }} x {{ line.name }} — {{ line.total | format 'N0' }}
+                {{ else ~}}
+                  (this order has no lines)
+                {{ end ~}}
+
+                Total: {{ order.total | vnd }}
+                Placed on {{ order.placed_at | format 'D' }}.
+                """,
             HtmlBody = """
                 <html>
                   <body style="font-family: sans-serif">
-                    <h1>Welcome to XXX</h1>
-                    <p>Hello <strong>{{username}}</strong>, welcome to XXX.</p>
-                    <p>This is your email: <a href="mailto:{{EMAIL}}">{{EMAIL}}</a></p>
-                    <p>Registered on {{ DATE | format 'D' }}.</p>
+                    <h1>Order {{ order.reference }} confirmed</h1>
+                    <p>Hello <strong>{{ customer.first_name }}</strong>,</p>
+                    {{~ if customer.is_vip ~}}
+                    <p style="color: #a67c00">As a VIP member your delivery is free.</p>
+                    {{~ end ~}}
+                    <table cellpadding="6" style="border-collapse: collapse">
+                      <tr><th align="left">Item</th><th align="right">Qty</th><th align="right">Total</th></tr>
+                      {{~ for line in order.lines ~}}
+                      <tr style="background: {{ if for.even }}#fff{{ else }}#f6f6f6{{ end }}">
+                        <td>{{ line.name }}</td>
+                        <td align="right">{{ line.quantity }}</td>
+                        <td align="right">{{ line.total | format 'N0' }}</td>
+                      </tr>
+                      {{~ else ~}}
+                      <tr><td colspan="3"><em>This order has no lines.</em></td></tr>
+                      {{~ end ~}}
+                      <tr><td colspan="2" align="right"><strong>Total</strong></td>
+                          <td align="right"><strong>{{ order.total | vnd }}</strong></td></tr>
+                    </table>
+                    <p>Placed on {{ order.placed_at | format 'D' }}.</p>
                   </body>
                 </html>
                 """,
@@ -359,20 +383,47 @@ internal static class SeedTemplates
         },
         new()
         {
-            TemplateKey = "welcome-user",
+            TemplateKey = "order-confirmation",
             Culture = "vi",
             Channel = TemplateChannel.Email,
-            Name = "Email chào mừng (Tiếng Việt)",
-            Description = "Gửi một lần, ngay sau khi người dùng xác nhận địa chỉ email.",
-            Subject = "Chào mừng tới XXX",
-            TextBody = "Xin chào {{username}}, chào mừng tới XXX, đây là email của bạn {{EMAIL}}",
+            Name = "Email xác nhận đơn hàng (Tiếng Việt)",
+            Description = "Gửi khi thanh toán thành công. Lặp qua từng dòng hàng và cộng tổng.",
+            Subject = "Đơn hàng {{ order.reference }} đã được xác nhận",
+            TextBody = """
+                Xin chào {{ customer.first_name }},
+
+                {{ for line in order.lines ~}}
+                  {{ line.quantity }} x {{ line.name }} — {{ line.total | format 'N0' }} đ
+                {{ else ~}}
+                  (đơn hàng không có sản phẩm nào)
+                {{ end ~}}
+
+                Tổng cộng: {{ order.total | vnd }}
+                Đặt ngày {{ order.placed_at | format 'D' }}.
+                """,
             HtmlBody = """
                 <html>
                   <body style="font-family: sans-serif">
-                    <h1>Chào mừng tới XXX</h1>
-                    <p>Xin chào <strong>{{username}}</strong>, chào mừng tới XXX.</p>
-                    <p>Đây là email của bạn: <a href="mailto:{{EMAIL}}">{{EMAIL}}</a></p>
-                    <p>Đăng ký ngày {{ DATE | format 'D' }}.</p>
+                    <h1>Đơn hàng {{ order.reference }} đã được xác nhận</h1>
+                    <p>Xin chào <strong>{{ customer.first_name }}</strong>,</p>
+                    {{~ if customer.is_vip ~}}
+                    <p style="color: #a67c00">Khách hàng VIP được miễn phí vận chuyển.</p>
+                    {{~ end ~}}
+                    <table cellpadding="6" style="border-collapse: collapse">
+                      <tr><th align="left">Sản phẩm</th><th align="right">SL</th><th align="right">Thành tiền</th></tr>
+                      {{~ for line in order.lines ~}}
+                      <tr style="background: {{ if for.even }}#fff{{ else }}#f6f6f6{{ end }}">
+                        <td>{{ line.name }}</td>
+                        <td align="right">{{ line.quantity }}</td>
+                        <td align="right">{{ line.total | format 'N0' }} đ</td>
+                      </tr>
+                      {{~ else ~}}
+                      <tr><td colspan="3"><em>Đơn hàng không có sản phẩm nào.</em></td></tr>
+                      {{~ end ~}}
+                      <tr><td colspan="2" align="right"><strong>Tổng cộng</strong></td>
+                          <td align="right"><strong>{{ order.total | vnd }}</strong></td></tr>
+                    </table>
+                    <p>Đặt ngày {{ order.placed_at | format 'D' }}.</p>
                   </body>
                 </html>
                 """,
@@ -380,60 +431,38 @@ internal static class SeedTemplates
         },
         new()
         {
-            TemplateKey = "welcome-user",
+            TemplateKey = "order-confirmation",
             Culture = "en",
             Channel = TemplateChannel.InApp,
-            Name = "Welcome notification (English)",
-            Description = "Shown in the notification centre on first sign-in.",
-            Subject = "Welcome!",
-            TextBody = "Hi {{username}}, your account is ready.",
+            Name = "Order confirmation notification (English)",
+            Description = "One line, so it pluralises with an if instead of a table.",
+            Subject = "Order confirmed",
+            TextBody =
+                "{{ order.lines.size }} item{{ if order.lines.size != 1 }}s{{ end }} " +
+                "on the way, {{ order.total | vnd }} total.",
             UpdatedAtUtc = SeededAt,
         },
         new()
         {
-            TemplateKey = "welcome-user",
+            TemplateKey = "order-confirmation",
             Culture = "vi",
             Channel = TemplateChannel.InApp,
-            Name = "Thông báo chào mừng (Tiếng Việt)",
-            Description = "Hiển thị trong trung tâm thông báo khi đăng nhập lần đầu.",
-            Subject = "Chào mừng!",
-            TextBody = "Chào {{username}}, tài khoản của bạn đã sẵn sàng.",
-            UpdatedAtUtc = SeededAt,
-        },
-        new()
-        {
-            TemplateKey = "reset-password",
-            Culture = "en",
-            Channel = TemplateChannel.Email,
-            Name = "Password reset e-mail (English)",
-            Description = "Carries a one-time code; expires with the code.",
-            Subject = "Reset your password, {{username}}",
-            TextBody = "Use the code {{CODE}} before {{ EXPIRES_AT | format 'g' }}. It is valid for {{MINUTES}} minutes.",
-            HtmlBody = "<p>Use the code <code>{{CODE}}</code> before {{ EXPIRES_AT | format 'g' }} ({{MINUTES}} minutes).</p>",
-            UpdatedAtUtc = SeededAt,
-        },
-        new()
-        {
-            TemplateKey = "reset-password",
-            Culture = "vi",
-            Channel = TemplateChannel.Email,
-            Name = "Email đặt lại mật khẩu (Tiếng Việt)",
-            Description = "Chứa mã dùng một lần; hết hạn cùng với mã.",
-            Subject = "Đặt lại mật khẩu, {{username}}",
-            TextBody = "Dùng mã {{CODE}} trước {{ EXPIRES_AT | format 'g' }}. Mã có hiệu lực {{MINUTES}} phút.",
-            HtmlBody = "<p>Dùng mã <code>{{CODE}}</code> trước {{ EXPIRES_AT | format 'g' }} ({{MINUTES}} phút).</p>",
+            Name = "Thông báo xác nhận đơn hàng (Tiếng Việt)",
+            Description = "Một dòng: tiếng Việt không đổi số nhiều, nên không cần if.",
+            Subject = "Đã xác nhận đơn hàng",
+            TextBody = "{{ order.lines.size }} sản phẩm đang được giao, tổng {{ order.total | vnd }}.",
             UpdatedAtUtc = SeededAt,
         },
         new()
         {
             // The Other channel covers everything Templar does not model explicitly — here an SMS,
-            // which has no subject and no HTML.
-            TemplateKey = "reset-password",
+            // which has no subject and no HTML. Whitespace control (~) keeps the loop on one line.
+            TemplateKey = "order-confirmation",
             Culture = "vi",
             Channel = TemplateChannel.Other,
-            Name = "SMS đặt lại mật khẩu (Tiếng Việt)",
-            Description = "Kênh Other: nội dung SMS, chỉ có text và không có tiêu đề.",
-            TextBody = "XXX: ma xac thuc {{CODE}}, het han sau {{MINUTES}} phut.",
+            Name = "SMS xác nhận đơn hàng (Tiếng Việt)",
+            Description = "Kênh Other: chỉ có text, không tiêu đề, không HTML.",
+            TextBody = "XXX: don {{ order.reference }} da xac nhan, {{ order.lines.size }} san pham.",
             UpdatedAtUtc = SeededAt,
         },
     ];

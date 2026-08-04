@@ -13,6 +13,20 @@ public sealed class TemplateNotFoundException(string templateKey, string culture
     public TemplateChannel Channel { get; } = channel;
 }
 
+/// <summary>The template text could not be parsed by the rendering engine.</summary>
+/// <remarks>
+/// Any stored body can fail to parse, so a screen that saves or renders one should expect this —
+/// a stray brace and the legacy <c>{{DATE:d}}</c> format syntax both land here.
+/// </remarks>
+public sealed class TemplateCompilationException(
+    string message,
+    IReadOnlyList<string>? errors = null,
+    Exception? innerException = null) : TemplateException(message, innerException)
+{
+    /// <summary>One entry per syntax error the engine reported, with its position.</summary>
+    public IReadOnlyList<string> Errors { get; } = errors ?? [];
+}
+
 /// <summary>The template was found but could not be rendered.</summary>
 public sealed class TemplateRenderException(
     string message,

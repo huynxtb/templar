@@ -58,6 +58,12 @@ app.Use(async (context, next) =>
             .Problem(exception.Message, statusCode: StatusCodes.Status404NotFound, title: "Template not found")
             .ExecuteAsync(context);
     }
+    catch (TemplateCompilationException exception)
+    {
+        await Results
+            .Problem(exception.Message, statusCode: StatusCodes.Status400BadRequest, title: "Template does not parse")
+            .ExecuteAsync(context);
+    }
     catch (TemplateRenderException exception)
     {
         await Results
@@ -297,7 +303,7 @@ internal sealed record RenderRequest(
     };
 
     /// <summary>
-    /// Format specifiers such as <c>{{MINUTES:N0}}</c> and <c>{{EXPIRES_AT:g}}</c> only apply to real
+    /// Format specifiers such as <c>{{ MINUTES | format 'N0' }}</c> and <c>{{ EXPIRES_AT | format 'g' }}</c> only apply to real
     /// numbers and dates, and JSON already carries the type — so <c>15</c> arrives as a number while
     /// a verification code sent as <c>"007193"</c> keeps its leading zero.
     /// </summary>
@@ -306,6 +312,8 @@ internal sealed record RenderRequest(
         JsonValueKind.String => value.TryGetDateTimeOffset(out var timestamp) ? timestamp : value.GetString(),
         JsonValueKind.Number => value.TryGetInt64(out var integer) ? integer : value.GetDecimal(),
         JsonValueKind.True or JsonValueKind.False => value.GetBoolean(),
+        JsonValueKind.Array => value.EnumerateArray().Select(Unwrap).ToList(),
+        JsonValueKind.Object => value.EnumerateObject().ToDictionary(p => p.Name, p => Unwrap(p.Value)),
         JsonValueKind.Null => null,
         _ => value.ToString(),
     };
@@ -382,7 +390,7 @@ internal static class SeedTemplates
                     <h1>Welcome to XXX</h1>
                     <p>Hello <strong>{{username}}</strong>, welcome to XXX.</p>
                     <p>This is your email: <a href="mailto:{{EMAIL}}">{{EMAIL}}</a></p>
-                    <p>Registered on {{DATE:D}}.</p>
+                    <p>Registered on {{ DATE | format 'D' }}.</p>
                   </body>
                 </html>
                 """,
@@ -403,7 +411,7 @@ internal static class SeedTemplates
                     <h1>Chào mừng tới XXX</h1>
                     <p>Xin chào <strong>{{username}}</strong>, chào mừng tới XXX.</p>
                     <p>Đây là email của bạn: <a href="mailto:{{EMAIL}}">{{EMAIL}}</a></p>
-                    <p>Đăng ký ngày {{DATE:D}}.</p>
+                    <p>Đăng ký ngày {{ DATE | format 'D' }}.</p>
                   </body>
                 </html>
                 """,
@@ -439,8 +447,8 @@ internal static class SeedTemplates
             Name = "Password reset e-mail (English)",
             Description = "Carries a one-time code; expires with the code.",
             Subject = "Reset your password, {{username}}",
-            TextBody = "Use the code {{CODE}} before {{EXPIRES_AT:g}}. It is valid for {{MINUTES}} minutes.",
-            HtmlBody = "<p>Use the code <code>{{CODE}}</code> before {{EXPIRES_AT:g}} ({{MINUTES}} minutes).</p>",
+            TextBody = "Use the code {{CODE}} before {{ EXPIRES_AT | format 'g' }}. It is valid for {{MINUTES}} minutes.",
+            HtmlBody = "<p>Use the code <code>{{CODE}}</code> before {{ EXPIRES_AT | format 'g' }} ({{MINUTES}} minutes).</p>",
             UpdatedAtUtc = SeededAt,
         },
         new()
@@ -451,8 +459,8 @@ internal static class SeedTemplates
             Name = "Email đặt lại mật khẩu (Tiếng Việt)",
             Description = "Chứa mã dùng một lần; hết hạn cùng với mã.",
             Subject = "Đặt lại mật khẩu, {{username}}",
-            TextBody = "Dùng mã {{CODE}} trước {{EXPIRES_AT:g}}. Mã có hiệu lực {{MINUTES}} phút.",
-            HtmlBody = "<p>Dùng mã <code>{{CODE}}</code> trước {{EXPIRES_AT:g}} ({{MINUTES}} phút).</p>",
+            TextBody = "Dùng mã {{CODE}} trước {{ EXPIRES_AT | format 'g' }}. Mã có hiệu lực {{MINUTES}} phút.",
+            HtmlBody = "<p>Dùng mã <code>{{CODE}}</code> trước {{ EXPIRES_AT | format 'g' }} ({{MINUTES}} phút).</p>",
             UpdatedAtUtc = SeededAt,
         },
         new()

@@ -14,6 +14,10 @@
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Rendering">
+    <PackageVersion Include="Scriban" Version="7.2.6" />
+  </ItemGroup>
+
   <ItemGroup Label="Database providers">
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.1.1" />
     <PackageVersion Include="MongoDB.Driver" Version="3.5.0" />

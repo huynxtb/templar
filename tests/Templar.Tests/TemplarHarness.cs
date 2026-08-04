@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Templar.Abstractions;
 using Templar.Caching;
-using Templar.Rendering;
+using Templar.Scriban;
 using Templar.Services;
 using Templar.Stores;
 
@@ -38,10 +38,15 @@ internal sealed class TemplarHarness(
         cache ??= options.EnableCache ? new MemoryTemplateCache(wrapped) : NullTemplateCache.Instance;
 
         var queries = new TemplateQueryService(store, cache, wrapped);
+        var scriban = new ScribanOptions();
 
         return new TemplarHarness(
             queries,
-            new TemplateRenderService(queries, new MustacheTemplateCompiler(), new TemplateRenderer(), wrapped),
+            new TemplateRenderService(
+                queries,
+                new ScribanTemplateCompiler(scriban, wrapped),
+                new ScribanTemplateRenderer(scriban),
+                wrapped),
             store is ITemplateWriteStore writable ? new TemplateCommandService(writable, cache) : null,
             cache);
     }

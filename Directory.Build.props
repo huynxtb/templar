@@ -16,7 +16,7 @@
     <Authors>Templar</Authors>
     <Product>Templar</Product>
     <Description>Multi-language email / in-app notification templates stored in a database.</Description>
-    <PackageTags>email;notification;template;localization;mustache</PackageTags>
+    <PackageTags>email;notification;template;localization;scriban</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
