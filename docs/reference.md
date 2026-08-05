@@ -126,13 +126,22 @@ services.AddTemplar()
 
 It ships inside `Templar.Core` — there is no separate package. Everything else in this document
 applies unchanged: culture fallback, caching, the three services, `Parts`, `TemplateRaw`,
-`MissingVariableBehavior`. Call `UseScriban(options => …)` to tune it.
+`MissingVariableBehavior`. The engine's own settings live on the same `TemplateOptions`, so
+`AddTemplar(options => …)` tunes it — there is no second call to make.
 
 ```
 Subject:  Order {{ order.reference }} confirmed
 
 {{~ if customer.is_vip ~}}
 <p>As a VIP member your delivery is free.</p>
+{{~ end ~}}
+{{~ case order.status ~}}
+{{~ when 'paid' ~}}
+<p>Payment received — we are packing your order.</p>
+{{~ when 'pending' ~}}
+<p>We are still waiting for your payment.</p>
+{{~ else ~}}
+<p>Order status: {{ order.status }}</p>
 {{~ end ~}}
 <table>
   {{~ for line in order.lines ~}}
@@ -148,9 +157,11 @@ Subject:  Order {{ order.reference }} confirmed
 <p>Placed on {{ order.placed_at | format 'D' }}.</p>
 ```
 
-`{{~ … ~}}` trims the surrounding whitespace, which is what keeps generated HTML from filling with
-blank lines. `for` exposes `for.index`, `for.first`, `for.last`, `for.even` and `for.odd`, and takes
-an `else` branch for an empty collection. Scriban's own
+`~}}` swallows the newline that follows a tag and `{{~` the spaces that precede one, which is what
+keeps generated HTML from filling with blank lines. `for` exposes `for.index`, `for.first`,
+`for.last`, `for.even` and `for.odd`, and takes an `else` branch for an empty collection.
+`case`/`when` is the switch: each `when` takes one value or a comma-separated list, and `else` is the
+default arm. Scriban's own
 [builtins](https://github.com/scriban/scriban/blob/master/doc/builtins.md) — `string`, `math`,
 `date`, `array`, `object`, `regex` — are all available: `{{ line.name | string.truncate 40 }}`.
 
@@ -190,9 +201,10 @@ A literal `{{` is written `{{ '{{' }}`. Anything else that only *looks* like a p
 `TemplateCompilationException` rather than literal text, so an editor that saves a body should compile
 it before storing it.
 
-### Options
+### Engine options
 
-`UseScriban(options => …)`:
+The engine's settings are on `TemplateOptions` with everything else, so one `AddTemplar(options => …)`
+configures both:
 
 | Option | Default | Effect |
 | --- | --- | --- |
@@ -206,8 +218,9 @@ it before storing it.
 | `Functions` | empty | Named delegates the templates can call — see [Custom functions](#custom-functions) |
 | `ConfigureContext` | — | `Action<TemplateContext>` run before each render, for anything `Functions` cannot express: a whole namespace of functions, or a `TemplateLoader` for `{{ include }}` |
 
-`CompiledTemplateCacheSize` stays on `TemplateOptions`, since the compiler's own cache is not a
-Scriban setting.
+Bad values are rejected at construction, like the rest of `TemplateOptions`: a non-positive
+`LoopLimit` and a blank or null entry in `Functions` both fail the first time the engine is resolved
+rather than on a later render.
 
 ### Custom functions
 
@@ -215,13 +228,12 @@ Scriban setting.
 then call what it holds:
 
 ```csharp
-services.AddTemplar()
-        .UsePostgreSql(connectionString)
-        .UseScriban(options =>
+services.AddTemplar(options =>
         {
             options.Functions["vnd"]  = (decimal amount) => $"{amount:N0} ₫";
             options.Functions["mask"] = (string card) => $"**** {card[^4..]}";
-        });
+        })
+        .UsePostgreSql(connectionString);
 ```
 
 ```
@@ -295,6 +307,10 @@ var sms = await templates.RenderAsync(new TemplateRenderRequest
 ```
 
 ## Options
+
+Everything `AddTemplar(options => …)` sets, in one place. The engine's own settings —
+`LoopLimit`, `Functions`, `RelaxedMemberAccess` and the rest — are on the same object and are
+tabulated under [Engine options](#engine-options).
 
 | Option | Default | Effect |
 | --- | --- | --- |
@@ -456,17 +472,17 @@ the seed data are all in that one file, in that order, so you can read it start 
 the one you need without untangling anything. The files are near-identical on purpose; the provider
 differences are the `Use…` call and the comment above it.
 
-Each seeds `welcome-user` (`en`/`vi`, e-mail and in-app), `reset-password` (`en`/`vi` plus an SMS on
-the `Other` channel) and, where the store supports it, creates its own table on startup. The Scriban
-sample is the exception: it seeds `order-confirmation` instead, whose bodies need a loop and a
-conditional to render at all.
+Each seeds the same three keys and, where the store supports it, creates its own table on startup:
+`welcome-user` and `reset-password` (`en`/`vi`, e-mail and in-app, plus an SMS on the `Other` channel)
+are the flat ones, and `order-confirmation` is the one that exercises the engine — a `for` over the
+order lines as a table, `if`/`else` on VIP status, `case`/`when` on the order status, and the `vnd`
+function each sample registers in its `AddTemplar` call.
 
 | Project | Shows | Port |
 | --- | --- | --- |
 | `Templar.Sample.InMemory` | `UseInMemoryStore()` — needs no database | 5000 |
 | `Templar.Sample.MemoryCache` | The default `MemoryTemplateCache`, with a store-read counter | 5001 |
 | `Templar.Sample.DistributedCache` | `UseDistributedCache()` over Redis or memory | 5002 |
-| `Templar.Sample.Scriban` | Loops, conditionals and a line-item table, no database | 5003 |
 | `Templar.Sample.PostgreSql` | PostgreSQL | 5010 |
 | `Templar.Sample.MySql` | MySQL / MariaDB | 5011 |
 | `Templar.Sample.SqlServer` | SQL Server / Azure SQL | 5012 |
@@ -488,7 +504,11 @@ var settings = builder.Configuration.GetSection("Templates");
 
 builder.Services.AddOpenApi();
 builder.Services
-    .AddTemplar(options => options.DefaultCulture = settings["DefaultCulture"] ?? "en")
+    .AddTemplar(options =>
+    {
+        options.DefaultCulture = settings["DefaultCulture"] ?? "en";
+        options.Functions["vnd"] = (decimal amount) => $"{amount:N0} ₫";
+    })
     .UsePostgreSql(settings["ConnectionString"]!, store => store.Schema = settings["Schema"]);
 ```
 
@@ -524,9 +544,10 @@ one. Everything below is callable from that page — there is no separate UI.
               "EXPIRES_AT": "2026-08-01T09:30:00Z" } }
 ```
 
-`15` stays a number and formats per culture in `{{MINUTES:N0}}`, the ISO string becomes a
-`DateTimeOffset` for `{{EXPIRES_AT:g}}`, and `"007193"` stays a string so a verification code keeps
-its leading zero.
+`15` stays a number and formats per culture in `{{ MINUTES | format 'N0' }}`, the ISO string becomes a
+`DateTimeOffset` for `{{ EXPIRES_AT | format 'g' }}`, and `"007193"` stays a string so a verification
+code keeps its leading zero. JSON arrays and objects arrive as lists and dictionaries, which is what
+lets `{{ for line in order.lines }}` iterate them.
 
 ```bash
 J="content-type: application/json"
@@ -535,7 +556,7 @@ curl -s localhost:5000/api/templates -H "$J" -d '{
   "templateKey": "invoice-paid", "culture": "vi", "channel": "Email",
   "name": "Email hoá đơn", "description": "Gửi khi thanh toán thành công.",
   "subject": "Hoá đơn {{invoiceNo}} đã thanh toán",
-  "textBody": "Xin chào {{username}}, hoá đơn {{invoiceNo}} ({{AMOUNT:N0}} đ) đã thanh toán." }'
+  "textBody": "Xin chào {{username}}, hoá đơn {{invoiceNo}} ({{ AMOUNT | format 'N0' }} đ) đã thanh toán." }'
 
 curl -s localhost:5000/api/render -H "$J" -d '{ "templateKey": "invoice-paid", "culture": "vi",
   "values": { "username": "Huy", "invoiceNo": "INV-204", "AMOUNT": 1990000 } }'
@@ -637,10 +658,10 @@ choice of provider. A database sample's `appsettings.json` carries a placeholder
 make test         # or: dotnet test Templar.slnx
 ```
 
-112 unit tests cover the compiler, the renderer, the three services, culture fallback, channels, parts,
+115 unit tests cover the compiler, the renderer, the three services, culture fallback, channels, parts,
 the in-process and distributed caches, the in-memory store, DI lifetimes, the Scriban engine (loops,
-conditionals, encoding, the three missing-value modes, the loop limit, the legacy-format check and
-custom `Functions`) and the SQL each dialect generates — none need a database.
+`if`/`else`, `case`/`when`, encoding, the three missing-value modes, the loop limit, the legacy-format
+check and custom `Functions`) and the SQL each dialect generates — none need a database.
 
 The five provider round-trip tests are skipped unless a connection string is exported. Each covers
 DDL, both upsert paths, Unicode, a 12 KB body, UTC round-tripping, the `Other` channel, delete and a
@@ -669,7 +690,7 @@ src/Templar.Core          Abstractions/ (query, command, render + the 3 store co
 src/Templar.Relational    RelationalTemplateStore, shared by the four SQL providers
 src/Templar.{MySql,SqlServer,PostgreSql,Oracle,Mongo}
                           one store + one Use… extension each
-samples/Templar.Sample.{InMemory,MemoryCache,DistributedCache,Scriban,PostgreSql,MySql,SqlServer,Oracle,Mongo}
+samples/Templar.Sample.{InMemory,MemoryCache,DistributedCache,PostgreSql,MySql,SqlServer,Oracle,Mongo}
                           four files each and no shared code: Program.cs (wiring, seeding, the API,
                           the request bodies and the seed data, in that order), a .csproj,
                           appsettings.json and Properties/launchSettings.json

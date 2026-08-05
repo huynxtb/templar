@@ -5,7 +5,7 @@ namespace Templar.Tests;
 
 public class ScribanCompilerTests
 {
-    private readonly ScribanTemplateCompiler _compiler = new(new ScribanOptions());
+    private readonly ScribanTemplateCompiler _compiler = new(new TemplateOptions());
 
     [Fact]
     public void Finds_free_variables_in_order_of_first_appearance()
@@ -26,7 +26,7 @@ public class ScribanCompilerTests
     /// <summary>
     /// <see cref="CompiledTemplate.VariableNames"/> is syntactic — the compiler has not met the
     /// globals yet, so a called name lands there whether it turns out to be a value, one of Templar's
-    /// builtins or a caller's <see cref="ScribanOptions.Functions"/> entry. Rendering resolves them;
+    /// builtins or a caller's <see cref="TemplateOptions.Functions"/> entry. Rendering resolves them;
     /// only a name that resolves to nothing is reported missing.
     /// </summary>
     [Fact]
@@ -81,7 +81,7 @@ public class ScribanCompilerTests
     [Fact]
     public void Allows_the_legacy_format_syntax_when_asked_to()
     {
-        var compiler = new ScribanTemplateCompiler(new ScribanOptions { RejectLegacyFormatSyntax = false });
+        var compiler = new ScribanTemplateCompiler(new TemplateOptions { RejectLegacyFormatSyntax = false });
 
         Assert.False(compiler.Compile("{{DATE:dd/MM/yyyy}}").IsStatic);
     }
@@ -105,7 +105,7 @@ public class ScribanCompilerTests
     [Fact]
     public void Parses_liquid_when_configured_to()
     {
-        var compiler = new ScribanTemplateCompiler(new ScribanOptions { UseLiquidSyntax = true });
+        var compiler = new ScribanTemplateCompiler(new TemplateOptions { UseLiquidSyntax = true });
 
         Assert.False(compiler.Compile("{% if vip %}VIP{% endif %}").IsStatic);
     }

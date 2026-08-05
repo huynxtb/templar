@@ -107,17 +107,23 @@ it, or loop over it. Nothing to register — `AddTemplar()` already did.
 | `{{ DATE \| format 'dd/MM/yyyy' }}` | Any .NET format string, applied in the template's culture |
 | `{{ if … }}` `{{ else }}` `{{ end }}` | Show a block only when the data says so |
 | `{{ for x in list }}` `{{ end }}` | Repeat a block — a table of order lines, say |
+| `{{ case x }}` `{{ when … }}` `{{ end }}` | Switch: one arm per value, `{{ else }}` for the rest |
 | `{{{{` | A literal `{{` |
 
 Values go into an HTML body HTML-encoded; wrap trusted markup in `TemplateRaw.Html(…)` to opt out.
 
-### A table and a conditional
+### A table, a conditional and a switch
 
 When the *shape* of the output depends on the data — a table of order lines, a paragraph only VIP
-customers see — write it in the body:
+customers see, one sentence per order status — write it in the body:
 
 ```
 {{~ if customer.is_vip ~}}<p>Your delivery is free.</p>{{~ end ~}}
+{{~ case order.status ~}}
+{{~ when 'paid' ~}}<p>Payment received.</p>
+{{~ when 'pending' ~}}<p>We are waiting for your payment.</p>
+{{~ else ~}}<p>Order status: {{ order.status }}</p>
+{{~ end ~}}
 <table>
   {{~ for line in order.lines ~}}
   <tr><td>{{ line.name }}</td><td>{{ line.total | format 'N0' }}</td></tr>
@@ -140,9 +146,8 @@ TemplateValues.Create()
 Register them once where you configure the container, and every stored template can call them:
 
 ```csharp
-services.AddTemplar()
-        .UsePostgreSql(connectionString)
-        .UseScriban(options => options.Functions["vnd"] = (decimal amount) => $"{amount:N0} ₫");
+services.AddTemplar(options => options.Functions["vnd"] = (decimal amount) => $"{amount:N0} ₫")
+        .UsePostgreSql(connectionString);
 ```
 
 ```
@@ -208,7 +213,9 @@ registering any `IDistributedCache` to share one copy between instances.
 
 One sample per provider. Each is a single `Program.cs` you can read top to bottom — configuration,
 registration, seeding, then a Swagger-browsable API — with nothing shared between them, so you can
-copy the one you need and delete the rest. Start with the in-memory one; it needs no database:
+copy the one you need and delete the rest. All of them seed the same three templates, including an
+`order-confirmation` whose bodies use a `for` table, `if`/`else`, `case`/`when` and a `vnd` function.
+Start with the in-memory one; it needs no database:
 
 ```bash
 dotnet run --project samples/Templar.Sample.InMemory      # → http://localhost:5000/swagger
@@ -220,7 +227,6 @@ make samples                                              # every sample and its
 | `Templar.Sample.InMemory` | The in-memory store — no database needed | 5000 |
 | `Templar.Sample.MemoryCache` | The default in-process cache, with a store-read counter | 5001 |
 | `Templar.Sample.DistributedCache` | `UseDistributedCache()` over Redis or memory | 5002 |
-| `Templar.Sample.Scriban` | an order e-mail with a line-item table and a VIP conditional | 5003 |
 | `Templar.Sample.PostgreSql` | PostgreSQL | 5010 |
 | `Templar.Sample.MySql` | MySQL / MariaDB | 5011 |
 | `Templar.Sample.SqlServer` | SQL Server / Azure SQL | 5012 |

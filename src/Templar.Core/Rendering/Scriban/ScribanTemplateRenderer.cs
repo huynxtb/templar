@@ -15,7 +15,7 @@ namespace Templar.Scriban;
 /// every missing name reported in one error.
 /// </summary>
 public sealed class ScribanTemplateRenderer(
-    ScribanOptions scribanOptions,
+    TemplateOptions options,
     HtmlEncoder? htmlEncoder = null) : ITemplateRenderer
 {
     /// <summary>
@@ -27,12 +27,12 @@ public sealed class ScribanTemplateRenderer(
     public static HtmlEncoder UnicodeFriendlyEncoder { get; } =
         HtmlEncoder.Create(new TextEncoderSettings(UnicodeRanges.All));
 
-    private readonly ScribanOptions _options = scribanOptions ?? throw new ArgumentNullException(nameof(scribanOptions));
+    private readonly TemplateOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly HtmlEncoder _htmlEncoder = htmlEncoder ?? UnicodeFriendlyEncoder;
 
     // Culture-independent, unlike the builtins, so it is built once rather than per render.
-    private readonly TemplateFunctionsScriptObject? _functions = scribanOptions?.Functions.Count > 0
-        ? TemplateFunctionsScriptObject.Create(scribanOptions.Functions)
+    private readonly TemplateFunctionsScriptObject? _functions = options?.Functions.Count > 0
+        ? TemplateFunctionsScriptObject.Create(options.Functions)
         : null;
 
     public string Render(CompiledTemplate template, TemplateValues values, in TemplateRenderContext context)
@@ -98,7 +98,7 @@ public sealed class ScribanTemplateRenderer(
         _options.ConfigureContext?.Invoke(script);
 
         // Scriban's own conversions follow the culture pushed above, but a delegate in
-        // ScribanOptions.Functions doing $"{amount:N0}" reads the ambient one. Align them, or the
+        // TemplateOptions.Functions doing $"{amount:N0}" reads the ambient one. Align them, or the
         // template's culture would silently stop applying at the boundary of a caller's function.
         var ambient = CultureInfo.CurrentCulture;
         CultureInfo.CurrentCulture = context.Culture;

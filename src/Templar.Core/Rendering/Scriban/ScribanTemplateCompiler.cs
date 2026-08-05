@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Options;
 using Scriban.Parsing;
 using Scriban.Syntax;
 using Templar.Rendering;
@@ -17,13 +16,11 @@ namespace Templar.Scriban;
 /// <c>AddTemplar()</c> registers it together with <see cref="ScribanTemplateRenderer"/>, which is the
 /// only renderer that understands a <see cref="ScribanCompiledTemplate"/>.
 /// </remarks>
-public sealed partial class ScribanTemplateCompiler(
-    ScribanOptions scribanOptions,
-    IOptions<TemplateOptions>? options = null) : ITemplateCompiler
+public sealed partial class ScribanTemplateCompiler(TemplateOptions options) : ITemplateCompiler
 {
-    private readonly ScribanOptions _scriban = scribanOptions ?? throw new ArgumentNullException(nameof(scribanOptions));
+    private readonly TemplateOptions _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly ConcurrentDictionary<string, CompiledTemplate> _cache = new(StringComparer.Ordinal);
-    private readonly int _cacheSize = Math.Max(1, options?.Value.CompiledTemplateCacheSize ?? 1024);
+    private readonly int _cacheSize = Math.Max(1, options?.CompiledTemplateCacheSize ?? 1024);
 
     /// <summary>
     /// A whole token that is an identifier followed by <c>:</c> and a format — the
@@ -52,7 +49,7 @@ public sealed partial class ScribanTemplateCompiler(
 
     private ScribanCompiledTemplate Parse(string source)
     {
-        if (_scriban.RejectLegacyFormatSyntax)
+        if (_options.RejectLegacyFormatSyntax)
         {
             var legacy = LegacyFormatToken().Match(source);
             if (legacy.Success)
@@ -60,11 +57,11 @@ public sealed partial class ScribanTemplateCompiler(
                     $"'{legacy.Value}' is the legacy Templar 1.0 format syntax. Scriban does not reject it, " +
                     $"it renders it as an empty string, so the value would be lost silently. Write " +
                     $"{{{{ {legacy.Groups[1].Value} | format '{legacy.Groups[2].Value}' }}}} instead, or set " +
-                    $"{nameof(ScribanOptions)}.{nameof(ScribanOptions.RejectLegacyFormatSyntax)} to false.",
+                    $"{nameof(TemplateOptions)}.{nameof(TemplateOptions.RejectLegacyFormatSyntax)} to false.",
                     [legacy.Value]);
         }
 
-        var template = _scriban.UseLiquidSyntax
+        var template = _options.UseLiquidSyntax
             ? ScribanTemplate.ParseLiquid(source)
             : ScribanTemplate.Parse(source);
 

@@ -37,6 +37,16 @@ builder.Services
         options.EnableCultureFallback = settings.GetValue("EnableCultureFallback", true);
         options.EnableCache = settings.GetValue("EnableCache", true);
         options.CacheDuration = TimeSpan.FromSeconds(settings.GetValue("CacheSeconds", 300));
+
+        // A stored body can loop, so the iterations are capped: one bad row must not be able to
+        // hang a request thread.
+        options.LoopLimit = settings.GetValue("LoopLimit", 1000);
+
+        // Functions registered here are callable from every stored body: {{ order.total | vnd }}.
+        // They run in the template's culture, so this one delegate groups digits as 1.250.000 for the
+        // Vietnamese row and 1,250,000 for the English one. Shared across renders, so a function takes
+        // what it needs as arguments rather than closing over per-request state.
+        options.Functions["vnd"] = (decimal amount) => $"{amount:N0} ₫";
     })
     .UseMongo(connectionString, store =>
     {
@@ -282,8 +292,10 @@ internal sealed record WriteRequest(
 }
 
 /// <summary>
-/// Body of the render calls. <c>values</c> is free-form JSON:
-/// <c>{ "username": "Huy", "MINUTES": 15, "EXPIRES_AT": "2026-08-01T09:30:00Z" }</c>.
+/// Body of the render calls. <c>values</c> is free-form JSON —
+/// <c>{ "username": "Huy", "MINUTES": 15, "EXPIRES_AT": "2026-08-01T09:30:00Z" }</c> — and nested
+/// shapes are kept: <c>{ "customer": { "isVip": true }, "order": { "lines": [ { "name": "…" } ] } }</c>
+/// is what <c>{{ if customer.is_vip }}</c> and <c>{{ for line in order.lines }}</c> read.
 /// </summary>
 internal sealed record RenderRequest(
     string TemplateKey,
@@ -304,9 +316,11 @@ internal sealed record RenderRequest(
     };
 
     /// <summary>
-    /// Format specifiers such as <c>{{ MINUTES | format 'N0' }}</c> and <c>{{ EXPIRES_AT | format 'g' }}</c> only apply to real
-    /// numbers and dates, and JSON already carries the type — so <c>15</c> arrives as a number while
-    /// a verification code sent as <c>"007193"</c> keeps its leading zero.
+    /// Format specifiers such as <c>{{ MINUTES | format 'N0' }}</c> only apply to real numbers and
+    /// dates, and JSON already carries the type — so <c>15</c> arrives as a number while a
+    /// verification code sent as <c>"007193"</c> keeps its leading zero. Arrays and objects become
+    /// lists and dictionaries rather than strings; that is what makes them loopable and their members
+    /// reachable.
     /// </summary>
     private static object? Unwrap(JsonElement value) => value.ValueKind switch
     {
@@ -323,10 +337,12 @@ internal sealed record RenderRequest(
 // ---------------------------------------------------------------- seed
 
 /// <summary>
-/// What the sample starts with: <c>welcome-user</c> in English and Vietnamese as an e-mail and as an
-/// in-app notification, and <c>reset-password</c> in both languages plus an SMS on the
-/// <c>Other</c> channel. Enough to watch <c>vi-VN</c> fall back to <c>vi</c> and <c>ja</c> fall back
-/// to the default culture.
+/// What the sample starts with. <c>welcome-user</c> and <c>reset-password</c> are the flat ones —
+/// English and Vietnamese, e-mail and in-app, plus an SMS on the <c>Other</c> channel — and are
+/// enough to watch <c>vi-VN</c> fall back to <c>vi</c> and <c>ja</c> fall back to the default
+/// culture. <c>order-confirmation</c> is where the engine earns its keep: a <c>for</c> over the order
+/// lines rendered as a table, <c>if</c>/<c>else</c> on VIP status, <c>case</c>/<c>when</c> on the
+/// order status, and the <c>vnd</c> function registered in <c>AddTemplar</c>.
 /// </summary>
 internal static class SeedTemplates
 {
@@ -432,6 +448,177 @@ internal static class SeedTemplates
             Name = "SMS đặt lại mật khẩu (Tiếng Việt)",
             Description = "Kênh Other: nội dung SMS, chỉ có text và không có tiêu đề.",
             TextBody = "XXX: ma xac thuc {{CODE}}, het han sau {{MINUTES}} phut.",
+            UpdatedAtUtc = SeededAt,
+        },
+        new()
+        {
+            // Everything the engine can do, in one row: case/when on the status, if/else on VIP,
+            // a for over the lines as a table, and the vnd function AddTemplar registered.
+            TemplateKey = "order-confirmation",
+            Culture = "en",
+            Channel = TemplateChannel.Email,
+            Name = "Order confirmation (English)",
+            Description = "Sent when payment clears. Loops the order lines and totals them.",
+            Subject = "Order {{ order.reference }} confirmed",
+            TextBody = """
+                Hello {{ customer.first_name }},
+
+                {{ case order.status ~}}
+                {{ when 'paid' ~}}
+                Payment received — we are packing your order.
+                {{ when 'pending' ~}}
+                We are still waiting for your payment.
+                {{ else ~}}
+                Order status: {{ order.status }}
+                {{ end ~}}
+
+                {{ for line in order.lines ~}}
+                  {{ line.quantity }} x {{ line.name }} — {{ line.total | format 'N0' }}
+                {{ else ~}}
+                  (this order has no lines)
+                {{ end ~}}
+
+                Total: {{ order.total | vnd }}
+                Placed on {{ order.placed_at | format 'D' }}.
+                """,
+            HtmlBody = """
+                <html>
+                  <body style="font-family: sans-serif">
+                    <h1>Order {{ order.reference }} confirmed</h1>
+                    <p>Hello <strong>{{ customer.first_name }}</strong>,</p>
+                    {{~ if customer.is_vip ~}}
+                    <p style="color: #a67c00">As a VIP member your delivery is free.</p>
+                    {{~ else ~}}
+                    <p>Delivery is charged at the standard rate.</p>
+                    {{~ end ~}}
+                    {{~ case order.status ~}}
+                    {{~ when 'paid' ~}}
+                    <p style="color: #0a7d28">Payment received — we are packing your order.</p>
+                    {{~ when 'pending' ~}}
+                    <p style="color: #a67c00">We are still waiting for your payment.</p>
+                    {{~ else ~}}
+                    <p>Order status: {{ order.status }}</p>
+                    {{~ end ~}}
+                    <table cellpadding="6" style="border-collapse: collapse">
+                      <tr><th align="left">Item</th><th align="right">Qty</th><th align="right">Total</th></tr>
+                      {{~ for line in order.lines ~}}
+                      <tr style="background: {{ if for.even }}#fff{{ else }}#f6f6f6{{ end }}">
+                        <td>{{ line.name }}</td>
+                        <td align="right">{{ line.quantity }}</td>
+                        <td align="right">{{ line.total | format 'N0' }}</td>
+                      </tr>
+                      {{~ else ~}}
+                      <tr><td colspan="3"><em>This order has no lines.</em></td></tr>
+                      {{~ end ~}}
+                      <tr><td colspan="2" align="right"><strong>Total</strong></td>
+                          <td align="right"><strong>{{ order.total | vnd }}</strong></td></tr>
+                    </table>
+                    <p>Placed on {{ order.placed_at | format 'D' }}.</p>
+                  </body>
+                </html>
+                """,
+            UpdatedAtUtc = SeededAt,
+        },
+        new()
+        {
+            TemplateKey = "order-confirmation",
+            Culture = "vi",
+            Channel = TemplateChannel.Email,
+            Name = "Email xác nhận đơn hàng (Tiếng Việt)",
+            Description = "Gửi khi thanh toán thành công. Lặp qua từng dòng hàng và cộng tổng.",
+            Subject = "Đơn hàng {{ order.reference }} đã được xác nhận",
+            TextBody = """
+                Xin chào {{ customer.first_name }},
+
+                {{ case order.status ~}}
+                {{ when 'paid' ~}}
+                Đã nhận thanh toán — chúng tôi đang đóng gói đơn hàng.
+                {{ when 'pending' ~}}
+                Chúng tôi vẫn đang chờ thanh toán của bạn.
+                {{ else ~}}
+                Trạng thái đơn hàng: {{ order.status }}
+                {{ end ~}}
+
+                {{ for line in order.lines ~}}
+                  {{ line.quantity }} x {{ line.name }} — {{ line.total | format 'N0' }} đ
+                {{ else ~}}
+                  (đơn hàng không có sản phẩm nào)
+                {{ end ~}}
+
+                Tổng cộng: {{ order.total | vnd }}
+                Đặt ngày {{ order.placed_at | format 'D' }}.
+                """,
+            HtmlBody = """
+                <html>
+                  <body style="font-family: sans-serif">
+                    <h1>Đơn hàng {{ order.reference }} đã được xác nhận</h1>
+                    <p>Xin chào <strong>{{ customer.first_name }}</strong>,</p>
+                    {{~ if customer.is_vip ~}}
+                    <p style="color: #a67c00">Khách hàng VIP được miễn phí vận chuyển.</p>
+                    {{~ else ~}}
+                    <p>Phí vận chuyển áp dụng theo bảng giá thông thường.</p>
+                    {{~ end ~}}
+                    {{~ case order.status ~}}
+                    {{~ when 'paid' ~}}
+                    <p style="color: #0a7d28">Đã nhận thanh toán — chúng tôi đang đóng gói đơn hàng.</p>
+                    {{~ when 'pending' ~}}
+                    <p style="color: #a67c00">Chúng tôi vẫn đang chờ thanh toán của bạn.</p>
+                    {{~ else ~}}
+                    <p>Trạng thái đơn hàng: {{ order.status }}</p>
+                    {{~ end ~}}
+                    <table cellpadding="6" style="border-collapse: collapse">
+                      <tr><th align="left">Sản phẩm</th><th align="right">SL</th><th align="right">Thành tiền</th></tr>
+                      {{~ for line in order.lines ~}}
+                      <tr style="background: {{ if for.even }}#fff{{ else }}#f6f6f6{{ end }}">
+                        <td>{{ line.name }}</td>
+                        <td align="right">{{ line.quantity }}</td>
+                        <td align="right">{{ line.total | format 'N0' }} đ</td>
+                      </tr>
+                      {{~ else ~}}
+                      <tr><td colspan="3"><em>Đơn hàng không có sản phẩm nào.</em></td></tr>
+                      {{~ end ~}}
+                      <tr><td colspan="2" align="right"><strong>Tổng cộng</strong></td>
+                          <td align="right"><strong>{{ order.total | vnd }}</strong></td></tr>
+                    </table>
+                    <p>Đặt ngày {{ order.placed_at | format 'D' }}.</p>
+                  </body>
+                </html>
+                """,
+            UpdatedAtUtc = SeededAt,
+        },
+        new()
+        {
+            TemplateKey = "order-confirmation",
+            Culture = "en",
+            Channel = TemplateChannel.InApp,
+            Name = "Order confirmation notification (English)",
+            Description = "One line, so it pluralises with an if instead of a table.",
+            Subject = "Order confirmed",
+            TextBody =
+                "{{ order.lines.size }} item{{ if order.lines.size != 1 }}s{{ end }} " +
+                "on the way, {{ order.total | vnd }} total.",
+            UpdatedAtUtc = SeededAt,
+        },
+        new()
+        {
+            TemplateKey = "order-confirmation",
+            Culture = "vi",
+            Channel = TemplateChannel.InApp,
+            Name = "Thông báo xác nhận đơn hàng (Tiếng Việt)",
+            Description = "Một dòng: tiếng Việt không đổi số nhiều, nên không cần if.",
+            Subject = "Đã xác nhận đơn hàng",
+            TextBody = "{{ order.lines.size }} sản phẩm đang được giao, tổng {{ order.total | vnd }}.",
+            UpdatedAtUtc = SeededAt,
+        },
+        new()
+        {
+            // Whitespace control (~) keeps a loop on one line, which is all an SMS has room for.
+            TemplateKey = "order-confirmation",
+            Culture = "vi",
+            Channel = TemplateChannel.Other,
+            Name = "SMS xác nhận đơn hàng (Tiếng Việt)",
+            Description = "Kênh Other: chỉ có text, không tiêu đề, không HTML.",
+            TextBody = "XXX: don {{ order.reference }} da xac nhan, {{ order.lines.size }} san pham.",
             UpdatedAtUtc = SeededAt,
         },
     ];

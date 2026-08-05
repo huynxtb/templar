@@ -158,12 +158,11 @@ public class DatabaseIntegrationTests
 
         // The store plugs into the services unchanged: vi-VN resolves to the vi row.
         var options = Options.Create(new TemplateOptions { DefaultCulture = "en" });
-        var scriban = new ScribanOptions();
         var queries = new TemplateQueryService(store, new MemoryTemplateCache(options), options);
         var render = new TemplateRenderService(
             queries,
-            new ScribanTemplateCompiler(scriban, options),
-            new ScribanTemplateRenderer(scriban),
+            new ScribanTemplateCompiler(options.Value),
+            new ScribanTemplateRenderer(options.Value),
             options);
 
         var rendered = await render.RenderAsync(new TemplateRenderRequest

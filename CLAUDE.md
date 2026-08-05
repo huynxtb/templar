@@ -18,7 +18,7 @@ A `Makefile` wraps the common ones — `make help` lists them:
 
 ```bash
 make build                 # dotnet build Templar.slnx -c Release
-make test                  # unit suite (112 pass, the 5 provider round-trips skip)
+make test                  # unit suite (115 pass, the 5 provider round-trips skip)
 make test TEST=MySql_upserts_with_on_duplicate_key_update      # single test by name substring
 make test-all              # same, but the provider tests run if their env vars are set
 make run                   # sample API on http://localhost:5000
@@ -135,9 +135,14 @@ empty). Outside a request (startup seeding, background service),
 ### Rendering
 
 **Scriban is the only engine.** `AddTemplar()` registers its `ITemplateCompiler`/`ITemplateRenderer`
-pair with `TryAdd`, so a stored body gets `{{ if }}`, `{{ for }}` and pipes with nothing else called;
-`UseScriban(configure)` only *tunes* it (it `Configure`s `ScribanOptions`). The placeholder-only
-mustache engine that 1.0 shipped — `MustacheTemplateCompiler`, `TemplateRenderer`, `UseMustache()` —
+pair with `TryAdd`, so a stored body gets `{{ if }}`, `{{ for }}`, `{{ case }}` and pipes with nothing
+else called. **There is no `UseScriban`** — a separate `ScribanOptions` and the builder call that
+`Configure`d it were **removed**, and every engine setting (`Functions`, `LoopLimit`,
+`RelaxedMemberAccess`, `MemberNameFallback`, `RejectLegacyFormatSyntax`, `UseLiquidSyntax`,
+`RecursiveLimit`, `RegexTimeout`, `ConfigureContext`) now lives on `TemplateOptions` beside the caching
+and culture ones, validated by the same `Validate()`. One `AddTemplar(options => …)` configures
+everything; don't reintroduce a second options type or a second builder call for it. The
+placeholder-only mustache engine that 1.0 shipped — `MustacheTemplateCompiler`, `TemplateRenderer`, `UseMustache()` —
 was **removed**: it earned its keep only as a migration path off `{{DATE:d}}` tables, and the compiler
 rejecting that syntax outright (`RejectLegacyFormatSyntax`) covers the same ground without a second
 engine. Don't reintroduce one without that argument being made again.
@@ -186,7 +191,7 @@ package, so weigh anything else that wants to be added there against it. Six thi
   `LegacyFormatToken` regex is deliberately narrow (no `?`, `|` or braces inside) so a ternary,
   an object literal and a named argument all fail to match. The replacement is the `format` function
   Templar imports, which applies a .NET format string in the template's culture.
-- **`ScribanOptions.Functions` is pushed as its own global**, between Templar's builtins and the
+- **`TemplateOptions.Functions` is pushed as its own global**, between Templar's builtins and the
   values: a caller's function can therefore replace `format`, while a *value* still shadows a
   function of the same name (the values object is pushed last and Scriban resolves top-down). It is
   built once in the renderer's field initialiser rather than per render — it is culture-independent,
@@ -256,13 +261,14 @@ case-insensitive because it happens in the query service, not the store.
   section banners, no step-by-step narration. XML docs on public members are the exception and stay
   (see the `GenerateDocumentationFile` note above).
 - `TemplateDefinition` is a record — new languages and edits are expressed with `with`.
-- **The nine samples share no code, on purpose — do not factor them together.** An earlier version
+- **The eight samples share no code, on purpose — do not factor them together.** An earlier version
   had a `Templar.Sample.Shared` project and was rejected as hard to follow: each sample is now one
   self-contained `Program.cs` (wiring → seeding → endpoints → request bodies → seed data) plus a
   `.csproj`, `appsettings.json` and `launchSettings.json`. The files are ~90% identical and that is
   the point; a reader opens one file and a copier takes one directory. **A change to the API surface
-  or the seed has to be applied to all nine.** The provider-specific part is the `Use…` call and the
-  comment above it.
+  or the seed has to be applied to all eight** — the `SeedTemplates` class is byte-identical across
+  them, so verify that after editing. The provider-specific part is the `Use…` call and the comment
+  above it.
 - **The samples have no UI.** `AddOpenApi()` plus `Swashbuckle.AspNetCore.SwaggerUI` serve Swagger at
   `/swagger`, `/` redirects there, and every endpoint carries `WithTags`/`WithSummary` so the page
   documents itself. `Templar.Sample.InMemory` (port 5000) is the smoke test that needs no database;
@@ -272,14 +278,23 @@ case-insensitive because it happens in the query service, not the store.
   arrays and objects to lists and dictionaries rather than strings, because nested data has to
   survive for `{{ for line in order.lines }}` to have anything to iterate; every sample also catches
   `TemplateCompilationException`, since any stored body can now fail to parse.
-- `Templar.Sample.Scriban` (port 5003) is the one sample that departs from the shared seed. It is not
-  a different *engine* any more — every sample runs Scriban — it is the one that shows the engine
-  earning its keep, seeding `order-confirmation` with a line-item `for` and a VIP `if` instead of
-  `welcome-user`/`reset-password`, and the only one calling `UseScriban()` — to set `LoopLimit` and to
-  register the `vnd` function its totals pipe into, which is also the sample of `Functions`.
-- **The shared seed is Scriban syntax.** Format specifiers are `{{ MINUTES | format 'N0' }}`, never
-  the legacy `{{MINUTES:N0}}` — the compiler rejects that shape outright, so a sample seeded with it
-  fails on first render rather than silently dropping the value.
+- **There is no `Templar.Sample.Scriban` any more** (it was port 5003, which is now free). Every
+  sample runs Scriban, so a sample dedicated to the engine had nothing to distinguish it: its
+  `order-confirmation` seed moved into the shared seed and its `UseScriban` call became options on
+  `AddTemplar`. Don't add it back.
+- **The shared seed exercises the engine, in all eight samples.** `welcome-user` and `reset-password`
+  are the flat keys; `order-confirmation` is the one with a line-item `for` rendered as a table, an
+  `if`/`else` on VIP status, a `case`/`when` on order status, and `{{ order.total | vnd }}` piping into
+  the one function every sample registers in `AddTemplar` (`options.Functions["vnd"]`, alongside
+  `options.LoopLimit` from `appsettings.json`). Format specifiers are `{{ MINUTES | format 'N0' }}`,
+  never the legacy `{{MINUTES:N0}}` — the compiler rejects that shape outright, so a sample seeded
+  with it fails on first render rather than silently dropping the value.
+- **Scriban's whitespace control is not symmetric**, which is why the seed's text and HTML bodies trim
+  differently: `~}}` swallows the newline that follows a tag, while `{{~` only eats the spaces before
+  one (it does *not* remove the preceding newline). The text bodies therefore right-trim their block
+  tags and keep deliberate blank lines in the literal text; the HTML ones use `{{~ … ~}}` so a tag on
+  its own line leaves the following line's indentation intact. Render a body before changing its
+  tildes — the sample API is the cheapest way (`make run`, then `POST /api/render`).
 - `Microsoft.OpenApi` is pinned to 2.11.0 in `Directory.Packages.props` because
   `Microsoft.AspNetCore.OpenApi` asks for 2.0.0, which carries a high-severity advisory. Transitive
   pinning is on, so nothing references it directly and no shipped package is affected.

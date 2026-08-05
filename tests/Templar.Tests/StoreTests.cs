@@ -266,14 +266,19 @@ public class DependencyInjectionTests
     }
 
     /// <summary>
-    /// The point of <see cref="ScribanOptions.Functions"/>: a function registered once where the
+    /// The point of <see cref="TemplateOptions.Functions"/>: a function registered once where the
     /// container is configured is callable from every stored body, with no per-render plumbing.
     /// </summary>
     [Fact]
     public async Task A_function_registered_at_DI_time_is_callable_from_a_stored_template()
     {
         var services = new ServiceCollection();
-        services.AddTemplar(o => o.DefaultCulture = "vi")
+        services.AddTemplar(options =>
+            {
+                options.DefaultCulture = "vi";
+                options.Functions["vnd"] = (decimal amount) => $"{amount:N0} đ";
+                options.Functions["mask"] = (string value) => $"****{value[^4..]}";
+            })
             .UseInMemoryStore(
             [
                 new TemplateDefinition
@@ -284,12 +289,7 @@ public class DependencyInjectionTests
                     TextBody = "Cảm ơn {{ mask card }}.",
                     UpdatedAtUtc = DateTimeOffset.UnixEpoch,
                 },
-            ])
-            .UseScriban(options =>
-            {
-                options.Functions["vnd"] = (decimal amount) => $"{amount:N0} đ";
-                options.Functions["mask"] = (string value) => $"****{value[^4..]}";
-            });
+            ]);
 
         await using var provider = services.BuildServiceProvider(new ServiceProviderOptions
         {
@@ -311,9 +311,8 @@ public class DependencyInjectionTests
     public void A_blank_function_name_fails_when_the_engine_is_resolved()
     {
         var services = new ServiceCollection();
-        services.AddTemplar()
-            .UseInMemoryStore()
-            .UseScriban(options => options.Functions[" "] = () => "x");
+        services.AddTemplar(options => options.Functions[" "] = () => "x")
+            .UseInMemoryStore();
 
         using var provider = services.BuildServiceProvider();
 

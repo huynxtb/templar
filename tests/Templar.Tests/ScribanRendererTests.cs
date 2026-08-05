@@ -7,7 +7,7 @@ namespace Templar.Tests;
 
 public class ScribanRendererTests
 {
-    private static readonly ScribanOptions Options = new();
+    private static readonly TemplateOptions Options = new();
     private static readonly ScribanTemplateCompiler Compiler = new(Options);
     private static readonly ScribanTemplateRenderer Renderer = new(Options);
 
@@ -54,6 +54,21 @@ public class ScribanRendererTests
         Assert.Equal("standard", Render("{{ if customer.is_vip }}VIP{{ else }}standard{{ end }}", standard));
     }
 
+    [Theory]
+    [InlineData("paid", "Paid")]
+    [InlineData("pending", "Awaiting payment")]
+    [InlineData("cancelled", "Status: cancelled")]
+    public void Chooses_a_branch_with_case_and_when(string status, string expected)
+    {
+        const string Source =
+            "{{ case order.status }}{{ when 'paid' }}Paid{{ when 'pending' }}Awaiting payment" +
+            "{{ else }}Status: {{ order.status }}{{ end }}";
+
+        var values = TemplateValues.Create().Set("order", new { Status = status });
+
+        Assert.Equal(expected, Render(Source, values));
+    }
+
     [Fact]
     public void Exposes_loop_metadata_and_builtin_functions()
     {
@@ -65,7 +80,7 @@ public class ScribanRendererTests
     [Fact]
     public void Stops_a_runaway_loop_at_the_configured_limit()
     {
-        var options = new ScribanOptions { LoopLimit = 10 };
+        var options = new TemplateOptions { LoopLimit = 10 };
         var renderer = new ScribanTemplateRenderer(options);
 
         var exception = Assert.Throws<TemplateRenderException>(() => renderer.Render(
@@ -196,7 +211,7 @@ public class ScribanRendererTests
     }
 
     /// <summary>
-    /// A missing *member* is governed by <see cref="ScribanOptions.RelaxedMemberAccess"/>, not by
+    /// A missing *member* is governed by <see cref="TemplateOptions.RelaxedMemberAccess"/>, not by
     /// <see cref="MissingVariableBehavior"/> — otherwise <c>{{ if x.optional }}</c> could not be written.
     /// </summary>
     [Fact]
@@ -248,7 +263,7 @@ public class ScribanRendererTests
 
     // ------------------------------------------------------------------ options.Functions
 
-    private static string RenderWith(ScribanOptions options, string source, TemplateValues values)
+    private static string RenderWith(TemplateOptions options, string source, TemplateValues values)
         => new ScribanTemplateRenderer(options).Render(
             new ScribanTemplateCompiler(options).Compile(source),
             values,
@@ -257,7 +272,7 @@ public class ScribanRendererTests
     [Fact]
     public void Calls_a_registered_function_by_name_and_through_a_pipe()
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["vnd"] = (decimal amount) => $"{amount:N0} đ";
 
         Assert.Equal(
@@ -276,7 +291,7 @@ public class ScribanRendererTests
     [InlineData("{{ SHORTDATE d }}")]
     public void Matches_a_function_name_the_way_it_matches_every_other_name(string source)
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["shortDate"] = (DateTimeOffset value) => value.ToString("yyyy-MM-dd");
 
         var values = TemplateValues.Create().Set("d", new DateTimeOffset(2026, 8, 4, 0, 0, 0, TimeSpan.Zero));
@@ -295,7 +310,7 @@ public class ScribanRendererTests
     [InlineData("en", "1,250,000")]
     public void Runs_a_function_in_the_templates_culture_not_the_ambient_one(string culture, string expected)
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["money"] = (decimal amount) => $"{amount:N0}";
 
         var rendered = new ScribanTemplateRenderer(options).Render(
@@ -310,7 +325,7 @@ public class ScribanRendererTests
     [Fact]
     public void Lets_a_function_take_several_arguments_and_return_a_number()
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["add"] = (int a, int b) => a + b;
 
         Assert.Equal("7", RenderWith(options, "{{ add 3 4 }}", TemplateValues.Empty));
@@ -323,7 +338,7 @@ public class ScribanRendererTests
     [Fact]
     public void Lets_a_value_shadow_a_function_of_the_same_name()
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["total"] = () => "from the function";
 
         Assert.Equal(
@@ -334,7 +349,7 @@ public class ScribanRendererTests
     [Fact]
     public void Lets_a_registered_function_replace_a_builtin()
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["format"] = (object? value, string _) => $"[{value}]";
 
         Assert.Equal("[5]", RenderWith(options, "{{ n | format 'N0' }}", TemplateValues.Create().Set("n", 5)));
@@ -344,7 +359,7 @@ public class ScribanRendererTests
     public void Reports_a_function_that_was_never_registered_like_any_other_missing_name()
     {
         var exception = Assert.Throws<TemplateRenderException>(
-            () => RenderWith(new ScribanOptions(), "{{ slugify title }}", TemplateValues.Create().Set("title", "x")));
+            () => RenderWith(new TemplateOptions(), "{{ slugify title }}", TemplateValues.Create().Set("title", "x")));
 
         Assert.Contains("slugify", exception.Message, StringComparison.Ordinal);
     }
@@ -352,7 +367,7 @@ public class ScribanRendererTests
     [Fact]
     public void An_html_body_encodes_what_a_function_returns()
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["shout"] = (string value) => $"<b>{value}</b>";
 
         var rendered = new ScribanTemplateRenderer(options).Render(
@@ -367,7 +382,7 @@ public class ScribanRendererTests
     [Fact]
     public void A_function_can_return_TemplateRaw_to_skip_encoding()
     {
-        var options = new ScribanOptions();
+        var options = new TemplateOptions();
         options.Functions["bold"] = (string value) => TemplateRaw.Html($"<b>{value}</b>");
 
         var rendered = new ScribanTemplateRenderer(options).Render(

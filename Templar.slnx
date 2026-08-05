@@ -3,7 +3,6 @@
     <Project Path="samples/Templar.Sample.InMemory/Templar.Sample.InMemory.csproj" />
     <Project Path="samples/Templar.Sample.MemoryCache/Templar.Sample.MemoryCache.csproj" />
     <Project Path="samples/Templar.Sample.DistributedCache/Templar.Sample.DistributedCache.csproj" />
-    <Project Path="samples/Templar.Sample.Scriban/Templar.Sample.Scriban.csproj" />
     <Project Path="samples/Templar.Sample.PostgreSql/Templar.Sample.PostgreSql.csproj" />
     <Project Path="samples/Templar.Sample.MySql/Templar.Sample.MySql.csproj" />
     <Project Path="samples/Templar.Sample.SqlServer/Templar.Sample.SqlServer.csproj" />

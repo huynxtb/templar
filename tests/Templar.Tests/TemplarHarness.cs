@@ -38,14 +38,13 @@ internal sealed class TemplarHarness(
         cache ??= options.EnableCache ? new MemoryTemplateCache(wrapped) : NullTemplateCache.Instance;
 
         var queries = new TemplateQueryService(store, cache, wrapped);
-        var scriban = new ScribanOptions();
 
         return new TemplarHarness(
             queries,
             new TemplateRenderService(
                 queries,
-                new ScribanTemplateCompiler(scriban, wrapped),
-                new ScribanTemplateRenderer(scriban),
+                new ScribanTemplateCompiler(options),
+                new ScribanTemplateRenderer(options),
                 wrapped),
             store is ITemplateWriteStore writable ? new TemplateCommandService(writable, cache) : null,
             cache);

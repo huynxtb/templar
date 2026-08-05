@@ -23,9 +23,10 @@ public static class TemplarServiceCollectionExtensions
     /// <see cref="ITemplateStore"/> and resolving a service will fail.
     /// </summary>
     /// <remarks>
-    /// The engine is Scriban, so stored bodies can use <c>{{ if }}</c>, <c>{{ for }}</c> and pipes
-    /// without any further registration. Call
-    /// <see cref="ScribanTemplarBuilderExtensions.UseScriban"/> to tune it.
+    /// The engine is Scriban, so stored bodies can use <c>{{ if }}</c>, <c>{{ for }}</c>,
+    /// <c>{{ case }}</c> and pipes without any further registration. <paramref name="configure"/>
+    /// tunes it too — <see cref="TemplateOptions.Functions"/>, <see cref="TemplateOptions.LoopLimit"/>
+    /// and the rest are on the same options object as the caching and culture settings.
     /// </remarks>
     public static TemplarBuilder AddTemplar(
         this IServiceCollection services,
@@ -36,15 +37,12 @@ public static class TemplarServiceCollectionExtensions
         var optionsBuilder = services.AddOptions<TemplateOptions>();
         if (configure is not null) optionsBuilder.Configure(configure);
 
-        services.AddOptions<ScribanOptions>();
-
         // Stateless and thread-safe: the compiler and renderer hold only their own caches, and the
         // channel list is fixed at compile time.
         services.TryAddSingleton<ITemplateCompiler>(provider => new ScribanTemplateCompiler(
-            ScribanOptions.Validated(provider.GetRequiredService<IOptions<ScribanOptions>>()),
-            provider.GetRequiredService<IOptions<TemplateOptions>>()));
+            TemplateOptions.Validated(provider.GetRequiredService<IOptions<TemplateOptions>>())));
         services.TryAddSingleton<ITemplateRenderer>(provider => new ScribanTemplateRenderer(
-            ScribanOptions.Validated(provider.GetRequiredService<IOptions<ScribanOptions>>())));
+            TemplateOptions.Validated(provider.GetRequiredService<IOptions<TemplateOptions>>())));
         services.TryAddSingleton<ITemplateChannelService, TemplateChannelService>();
 
         services.TryAddSingleton<ITemplateCache>(provider =>

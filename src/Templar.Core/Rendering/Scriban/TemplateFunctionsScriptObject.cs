@@ -5,7 +5,7 @@ using Scriban.Runtime;
 namespace Templar.Scriban;
 
 /// <summary>
-/// Exposes <see cref="ScribanOptions.Functions"/> to Scriban. Built once and shared by every render,
+/// Exposes <see cref="TemplateOptions.Functions"/> to Scriban. Built once and shared by every render,
 /// so it is never written to: assignment in a template lands on the values object pushed above it.
 /// </summary>
 /// <remarks>
