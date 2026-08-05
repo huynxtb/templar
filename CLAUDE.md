@@ -67,6 +67,19 @@ pushes with the one-hour key it returns. The nuget.org policy is pinned to workf
 plus environment `production`, so renaming either breaks publishing. The `pack` skill
 (`.claude/skills/pack/`) covers building and verifying the packages locally.
 
+**Every change to shipped code bumps `<Version>` in the same commit.** Forgetting it is silent, not
+loud: CI stays green, `dotnet nuget push --skip-duplicate` exits 0 without uploading, and the tag step
+prints "version was not bumped" — so `main` carries code that no released package contains. There is
+no fixing it after the fact either, because nuget.org versions are immutable: 1.0.1 can never be
+re-pushed with different code, only superseded. That is exactly what happened between 1.0.1 and 2.0.0
+— the two Scriban commits shipped nowhere until the version moved.
+
+Pick the bump by what the change does to the public API, not by how big it felt: **patch** for a fix
+behind an unchanged surface, **minor** for additions only, **major** when anything public is removed
+or changed shape. 2.0.0 is major because the Mustache engine, `UseMustache()` and `ScribanOptions`
+were deleted. Changes that ship no code — README, `docs/reference.md`, samples, tests, CI — leave the
+version alone.
+
 ## Architecture
 
 ### Three services, not one
